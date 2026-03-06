@@ -322,6 +322,21 @@ function App:getHostAndPort()
 	return if #host > 0 then host else Config.defaultHost, if #port > 0 then port else Config.defaultPort
 end
 
+function App:getBaseUrl()
+	local host, port = self:getHostAndPort()
+	if string.find(host, "^https?://") then
+		local normalizedHost = host:gsub("/+$", "")
+		if (string.find(normalizedHost, "^https://") and port == "443")
+			or (string.find(normalizedHost, "^http://") and port == "80") then
+			return normalizedHost
+		end
+
+		return string.format("%s:%s", normalizedHost, port)
+	end
+
+	return string.format("http://%s:%s", host, port)
+end
+
 function App:getAuthorizationHeader()
 	local authHeader = self.authHeader:getValue()
 
@@ -404,9 +419,7 @@ end
 
 function App:findActiveServer()
 	local host, port = self:getHostAndPort()
-	local baseUrl = if string.find(host, "^https?://")
-		then string.format("%s:%s", host, port)
-		else string.format("http://%s:%s", host, port)
+	local baseUrl = self:getBaseUrl()
 
 	Log.trace("Checking for active sync server at {}", baseUrl)
 
@@ -637,9 +650,7 @@ function App:startSession()
 
 	local host, port = self:getHostAndPort()
 
-	local baseUrl = if string.find(host, "^https?://")
-		then string.format("%s:%s", host, port)
-		else string.format("http://%s:%s", host, port)
+	local baseUrl = self:getBaseUrl()
 	local apiContext = ApiContext.new(baseUrl, self:getAuthorizationHeader())
 
 	local serveSession = ServeSession.new({
