@@ -321,6 +321,24 @@ function App:getHostAndPort()
 	return if #host > 0 then host else Config.defaultHost, if #port > 0 then port else Config.defaultPort
 end
 
+function App:getAuthorizationHeader()
+	local authHeader = Settings:get("authHeader")
+	if type(authHeader) ~= "string" then
+		return nil
+	end
+
+	authHeader = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
+	if authHeader == "" then
+		return nil
+	end
+
+	if string.find(authHeader, "%s") then
+		return authHeader
+	end
+
+	return "Bearer " .. authHeader
+end
+
 function App:isSyncLockAvailable()
 	if #Players:GetPlayers() == 0 then
 		-- Team Create is not active, so no one can be holding the lock
@@ -394,7 +412,7 @@ function App:findActiveServer()
 
 	Log.trace("Checking for active sync server at {}", baseUrl)
 
-	local apiContext = ApiContext.new(baseUrl)
+	local apiContext = ApiContext.new(baseUrl, self:getAuthorizationHeader())
 	return apiContext:connect():andThen(function(serverInfo)
 		apiContext:disconnect()
 		return serverInfo, host, port
@@ -624,7 +642,7 @@ function App:startSession()
 	local baseUrl = if string.find(host, "^https?://")
 		then string.format("%s:%s", host, port)
 		else string.format("http://%s:%s", host, port)
-	local apiContext = ApiContext.new(baseUrl)
+	local apiContext = ApiContext.new(baseUrl, self:getAuthorizationHeader())
 
 	local serveSession = ServeSession.new({
 		apiContext = apiContext,

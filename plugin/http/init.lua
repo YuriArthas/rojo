@@ -46,18 +46,20 @@ local function performRequest(requestParams)
 	end)
 end
 
-function Http.get(url)
+function Http.get(url, headers)
 	return performRequest({
 		Url = url,
 		Method = "GET",
+		Headers = headers,
 	})
 end
 
-function Http.post(url, body)
+function Http.post(url, body, headers)
 	return performRequest({
 		Url = url,
 		Method = "POST",
 		Body = body,
+		Headers = headers,
 	})
 end
 

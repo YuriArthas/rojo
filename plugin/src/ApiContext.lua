@@ -14,6 +14,23 @@ local validateApiSocketPacket = Types.ifEnabled(Types.ApiSocketPacket)
 local validateApiSerialize = Types.ifEnabled(Types.ApiSerializeResponse)
 local validateApiRefPatch = Types.ifEnabled(Types.ApiRefPatchResponse)
 
+local function normalizeAuthHeader(authHeader)
+	if type(authHeader) ~= "string" then
+		return nil
+	end
+
+	local trimmed = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
+	if trimmed == "" then
+		return nil
+	end
+
+	if string.find(trimmed, "%s") then
+		return trimmed
+	end
+
+	return "Bearer " .. trimmed
+end
+
 local function rejectFailedRequests(response)
 	if response.code >= 400 then
 		local message = string.format("HTTP %s:\n%s", tostring(response.code), response.body)
@@ -93,11 +110,17 @@ end
 local ApiContext = {}
 ApiContext.__index = ApiContext
 
-function ApiContext.new(baseUrl)
+function ApiContext.new(baseUrl, authHeader)
 	assert(type(baseUrl) == "string", "baseUrl must be a string")
+	local normalizedAuthHeader = normalizeAuthHeader(authHeader)
 
 	local self = {
 		__baseUrl = baseUrl,
+		__requestHeaders = if normalizedAuthHeader == nil
+			then nil
+			else {
+				Authorization = normalizedAuthHeader,
+			},
 		__sessionId = nil,
 		__messageCursor = -1,
 		__wsClient = nil,
@@ -140,10 +163,18 @@ function ApiContext:setMessageCursor(index)
 	self.__messageCursor = index
 end
 
+function ApiContext:get(url)
+	return Http.get(url, self.__requestHeaders)
+end
+
+function ApiContext:post(url, body)
+	return Http.post(url, body, self.__requestHeaders)
+end
+
 function ApiContext:connect()
 	local url = ("%s/api/rojo"):format(self.__baseUrl)
 
-	return Http.get(url)
+	return self:get(url)
 		:andThen(rejectFailedRequests)
 		:andThen(Http.Response.msgpack)
 		:andThen(rejectWrongProtocolVersion)
@@ -163,7 +194,7 @@ end
 function ApiContext:read(ids)
 	local url = ("%s/api/read/%s"):format(self.__baseUrl, table.concat(ids, ","))
 
-	return Http.get(url):andThen(rejectFailedRequests):andThen(Http.Response.msgpack):andThen(function(body)
+	return self:get(url):andThen(rejectFailedRequests):andThen(Http.Response.msgpack):andThen(function(body)
 		if body.sessionId ~= self.__sessionId then
 			return Promise.reject("Server changed ID")
 		end
@@ -208,7 +239,7 @@ function ApiContext:write(patch)
 
 	body = Http.msgpackEncode(body)
 
-	return Http.post(url, body)
+	return self:post(url, body)
 		:andThen(rejectFailedRequests)
 		:andThen(Http.Response.msgpack)
 		:andThen(function(responseBody)
@@ -224,10 +255,16 @@ function ApiContext:connectWebSocket(packetHandlers)
 	url = url:gsub("^http://", "ws://"):gsub("^https://", "wss://")
 
 	return Promise.new(function(resolve, reject)
+		local options = {
+			Url = url,
+		}
+
+		if self.__requestHeaders ~= nil then
+			options.Headers = self.__requestHeaders
+		end
+
 		local success, wsClient =
-			pcall(HttpService.CreateWebStreamClient, HttpService, Enum.WebStreamClientType.WebSocket, {
-				Url = url,
-			})
+			pcall(HttpService.CreateWebStreamClient, HttpService, Enum.WebStreamClientType.WebSocket, options)
 		if not success then
 			reject("Failed to create WebSocket client: " .. tostring(wsClient))
 			return
@@ -283,7 +320,7 @@ end
 function ApiContext:open(id)
 	local url = ("%s/api/open/%s"):format(self.__baseUrl, id)
 
-	return Http.post(url, ""):andThen(rejectFailedRequests):andThen(Http.Response.msgpack):andThen(function(body)
+	return self:post(url, ""):andThen(rejectFailedRequests):andThen(Http.Response.msgpack):andThen(function(body)
 		if body.sessionId ~= self.__sessionId then
 			return Promise.reject("Server changed ID")
 		end
@@ -296,7 +333,7 @@ function ApiContext:serialize(ids: { string })
 	local url = ("%s/api/serialize"):format(self.__baseUrl)
 	local request_body = Http.msgpackEncode({ sessionId = self.__sessionId, ids = ids })
 
-	return Http.post(url, request_body)
+	return self:post(url, request_body)
 		:andThen(rejectFailedRequests)
 		:andThen(Http.Response.msgpack)
 		:andThen(function(response_body)
@@ -314,7 +351,7 @@ function ApiContext:refPatch(ids: { string })
 	local url = ("%s/api/ref-patch"):format(self.__baseUrl)
 	local request_body = Http.msgpackEncode({ sessionId = self.__sessionId, ids = ids })
 
-	return Http.post(url, request_body)
+	return self:post(url, request_body)
 		:andThen(rejectFailedRequests)
 		:andThen(Http.Response.msgpack)
 		:andThen(function(response_body)

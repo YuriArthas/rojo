@@ -94,6 +94,30 @@ function SettingsPage:render()
 			contentSize = self.contentSize,
 			transparency = self.props.transparency,
 		}, {
+			AuthHeader = e(Setting, {
+				id = "authHeader",
+				name = "Authorization Header",
+				description = "Optional Authorization header for all Rojo API requests. For user proxies, use 'Bearer <token>' (or paste raw token).",
+				transparency = self.props.transparency,
+				layoutOrder = layoutIncrement(),
+				input = e(TextInput, {
+					size = UDim2.new(0, 220, 0, 28),
+					text = Settings:getBinding("authHeader"),
+					placeholder = "Bearer <token>",
+					transparency = self.props.transparency,
+					enabled = true,
+					onEntered = function(text)
+						Settings:set("authHeader", text:gsub("^%s+", ""):gsub("%s+$", ""))
+					end,
+				}),
+				showReset = Settings:getBinding("authHeader"):map(function(value)
+					return value ~= ""
+				end),
+				onReset = function()
+					Settings:set("authHeader", "")
+				end,
+			}),
+
 			AutoReconnect = e(Setting, {
 				id = "autoReconnect",
 				name = "Auto Reconnect",
