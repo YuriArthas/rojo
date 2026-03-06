@@ -56,6 +56,7 @@ function App:init()
 	local priorSyncInfo = self:getPriorSyncInfo()
 	self.host, self.setHost = Roact.createBinding(priorSyncInfo.host or "")
 	self.port, self.setPort = Roact.createBinding(priorSyncInfo.port or "")
+	self.authHeader, self.setAuthHeader = Roact.createBinding("")
 
 	self.confirmationBindable = Instance.new("BindableEvent")
 	self.confirmationEvent = self.confirmationBindable.Event
@@ -322,10 +323,7 @@ function App:getHostAndPort()
 end
 
 function App:getAuthorizationHeader()
-	local authHeader = Settings:get("authHeader")
-	if type(authHeader) ~= "string" then
-		return nil
-	end
+	local authHeader = self.authHeader:getValue()
 
 	authHeader = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
 	if authHeader == "" then
@@ -921,6 +919,8 @@ function App:render()
 						onHostChange = self.setHost,
 						port = self.port,
 						onPortChange = self.setPort,
+						authHeader = self.authHeader,
+						onAuthHeaderChange = self.setAuthHeader,
 
 						onConnect = function()
 							self:startSession()

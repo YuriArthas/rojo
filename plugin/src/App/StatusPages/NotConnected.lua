@@ -88,6 +88,40 @@ local function AddressEntry(props)
 	end)
 end
 
+local function AuthorizationEntry(props)
+	return Theme.with(function(theme)
+		return e(BorderedContainer, {
+			transparency = props.transparency,
+			size = UDim2.new(1, 0, 0, 36),
+			layoutOrder = props.layoutOrder,
+		}, {
+			Input = e("TextBox", {
+				Text = props.authHeader or "",
+				FontFace = theme.Font.Code,
+				TextSize = theme.TextSize.Large,
+				TextColor3 = theme.AddressEntry.TextColor,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTransparency = props.transparency,
+				PlaceholderText = "Bearer <token>",
+				PlaceholderColor3 = theme.AddressEntry.PlaceholderColor,
+				ClearTextOnFocus = false,
+
+				Size = UDim2.new(1, -HOST_OFFSET * 2, 1, 0),
+				Position = UDim2.new(0, HOST_OFFSET, 0, 0),
+
+				ClipsDescendants = true,
+				BackgroundTransparency = 1,
+
+				[Roact.Change.Text] = function(object)
+					if props.onAuthHeaderChange ~= nil then
+						props.onAuthHeaderChange(object.Text)
+					end
+				end,
+			}),
+		})
+	end)
+end
+
 local NotConnectedPage = Roact.Component:extend("NotConnectedPage")
 
 function NotConnectedPage:render()
@@ -106,9 +140,16 @@ function NotConnectedPage:render()
 			layoutOrder = 2,
 		}),
 
+		AuthorizationEntry = e(AuthorizationEntry, {
+			authHeader = self.props.authHeader,
+			onAuthHeaderChange = self.props.onAuthHeaderChange,
+			transparency = self.props.transparency,
+			layoutOrder = 3,
+		}),
+
 		Buttons = e("Frame", {
 			Size = UDim2.new(1, 0, 0, 34),
-			LayoutOrder = 3,
+			LayoutOrder = 4,
 			BackgroundTransparency = 1,
 			ZIndex = 2,
 		}, {

@@ -23,5 +23,5 @@ return strict("Config", {
 	expectedServerVersionString = ("%d.%d or newer"):format(realVersion[1], realVersion[2]),
 	protocolVersion = 5,
 	defaultHost = "localhost",
-	defaultPort = "34872",
+	defaultPort = "443",
 })
