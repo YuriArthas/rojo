@@ -39,7 +39,8 @@ local ApiInfoResponse = t.interface({
 	sessionId = t.string,
 	serverVersion = t.string,
 	protocolVersion = t.number,
-	expectedPlaceIds = t.optional(t.array(t.number)),
+	expectedPlaceIds = t.optional(t.array(t.string)),
+	unexpectedPlaceIds = t.optional(t.array(t.string)),
 	rootInstanceId = RbxId,
 })
 

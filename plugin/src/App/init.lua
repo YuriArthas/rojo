@@ -786,7 +786,7 @@ function App:startSession()
 		elseif confirmationBehavior == "Unlisted PlaceId" then
 			-- Only confirm if the current placeId is not in the servePlaceIds allowlist
 			if serverInfo.expectedPlaceIds then
-				local isListed = table.find(serverInfo.expectedPlaceIds, game.PlaceId) ~= nil
+				local isListed = table.find(serverInfo.expectedPlaceIds, tostring(game.PlaceId)) ~= nil
 				if isListed then
 					Log.trace(
 						"Accepting patch without confirmation because placeId is listed and behavior is set to Unlisted PlaceId"

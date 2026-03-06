@@ -77,13 +77,25 @@ impl ApiService {
         let tree = self.serve_session.tree();
         let root_instance_id = tree.get_root_id();
 
+        let expected_place_ids = self.serve_session.serve_place_ids().map(|ids| {
+            let mut ids = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+            ids.sort();
+            ids
+        });
+
+        let unexpected_place_ids = self.serve_session.blocked_place_ids().map(|ids| {
+            let mut ids = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+            ids.sort();
+            ids
+        });
+
         msgpack_ok(&ServerInfoResponse {
             server_version: SERVER_VERSION.to_owned(),
             protocol_version: PROTOCOL_VERSION,
             session_id: self.serve_session.session_id(),
             project_name: self.serve_session.project_name().to_owned(),
-            expected_place_ids: self.serve_session.serve_place_ids().cloned(),
-            unexpected_place_ids: self.serve_session.blocked_place_ids().cloned(),
+            expected_place_ids,
+            unexpected_place_ids,
             place_id: self.serve_session.place_id(),
             game_id: self.serve_session.game_id(),
             root_instance_id,

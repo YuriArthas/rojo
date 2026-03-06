@@ -31,6 +31,18 @@ local function normalizeAuthHeader(authHeader)
 	return "Bearer " .. trimmed
 end
 
+local function containsPlaceId(placeIds, placeId)
+	local target = tostring(placeId)
+
+	for _, listedId in ipairs(placeIds) do
+		if tostring(listedId) == target then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function rejectFailedRequests(response)
 	if response.code >= 400 then
 		local message = string.format("HTTP %s:\n%s", tostring(response.code), response.body)
@@ -65,7 +77,7 @@ end
 
 local function rejectWrongPlaceId(infoResponseBody)
 	if infoResponseBody.expectedPlaceIds ~= nil then
-		local foundId = table.find(infoResponseBody.expectedPlaceIds, game.PlaceId)
+		local foundId = containsPlaceId(infoResponseBody.expectedPlaceIds, game.PlaceId)
 
 		if not foundId then
 			local idList = {}
@@ -85,7 +97,7 @@ local function rejectWrongPlaceId(infoResponseBody)
 	end
 
 	if infoResponseBody.unexpectedPlaceIds ~= nil then
-		local foundId = table.find(infoResponseBody.unexpectedPlaceIds, game.PlaceId)
+		local foundId = containsPlaceId(infoResponseBody.unexpectedPlaceIds, game.PlaceId)
 
 		if foundId then
 			local idList = {}
