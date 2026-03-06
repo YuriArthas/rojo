@@ -115,6 +115,23 @@ impl ApiService {
             }
         };
 
+        let headers = request.headers();
+        log::info!(
+            "Rojo websocket upgrade request path={} cursor={} auth_present={} connection={:?} upgrade={:?} ws_version={:?} ws_key_present={} user_agent={:?} x_forwarded_for={:?} x_auth_user={:?}",
+            request.uri().path(),
+            input_cursor,
+            headers.get("authorization").is_some(),
+            headers.get("connection").and_then(|v| v.to_str().ok()),
+            headers.get("upgrade").and_then(|v| v.to_str().ok()),
+            headers
+                .get("sec-websocket-version")
+                .and_then(|v| v.to_str().ok()),
+            headers.get("sec-websocket-key").is_some(),
+            headers.get("user-agent").and_then(|v| v.to_str().ok()),
+            headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
+            headers.get("x-auth-user").and_then(|v| v.to_str().ok()),
+        );
+
         // Upgrade the connection to WebSocket
         let (response, websocket) = match upgrade(request, None) {
             Ok(result) => result,
@@ -470,15 +487,21 @@ async fn handle_websocket_subscription(
     websocket: HyperWebsocket,
     input_cursor: u32,
 ) -> anyhow::Result<()> {
+    log::info!(
+        "Rojo websocket awaiting upgrade completion for session {} cursor {}",
+        serve_session.session_id(),
+        input_cursor
+    );
     let mut websocket = websocket.await?;
 
     let session_id = serve_session.session_id();
     let tree_handle = serve_session.tree_handle();
     let message_queue = serve_session.message_queue();
 
-    log::debug!(
-        "WebSocket subscription established for session {}",
-        session_id
+    log::info!(
+        "WebSocket subscription established for session {} at cursor {}",
+        session_id,
+        input_cursor
     );
 
     // Now continuously listen for new messages using select to handle both incoming messages

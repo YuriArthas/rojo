@@ -265,6 +265,12 @@ function ApiContext:connectWebSocket(packetHandlers)
 	local url = ("%s/api/socket/%s"):format(self.__baseUrl, self.__messageCursor)
 	-- Convert HTTP/HTTPS URL to WS/WSS
 	url = url:gsub("^http://", "ws://"):gsub("^https://", "wss://")
+	Log.info(
+		"Connecting Rojo websocket to {} (cursor={}, authHeaderPresent={})",
+		url,
+		self.__messageCursor,
+		self.__requestHeaders ~= nil
+	)
 
 	return Promise.new(function(resolve, reject)
 		local options = {
@@ -278,10 +284,12 @@ function ApiContext:connectWebSocket(packetHandlers)
 		local success, wsClient =
 			pcall(HttpService.CreateWebStreamClient, HttpService, Enum.WebStreamClientType.WebSocket, options)
 		if not success then
+			Log.error("Failed to create Rojo websocket client for {}: {}", url, tostring(wsClient))
 			reject("Failed to create WebSocket client: " .. tostring(wsClient))
 			return
 		end
 		self.__wsClient = wsClient
+		Log.info("Created Rojo websocket client for {}", url)
 
 		local closed, errored, received
 
@@ -308,6 +316,7 @@ function ApiContext:connectWebSocket(packetHandlers)
 		end)
 
 		closed = self.__wsClient.Closed:Connect(function()
+			Log.warn("Rojo websocket closed for {} (connected={})", url, self.__connected)
 			closed:Disconnect()
 			errored:Disconnect()
 			received:Disconnect()
@@ -320,6 +329,7 @@ function ApiContext:connectWebSocket(packetHandlers)
 		end)
 
 		errored = self.__wsClient.Error:Connect(function(code, msg)
+			Log.error("Rojo websocket errored for {}: {} - {}", url, tostring(code), tostring(msg))
 			closed:Disconnect()
 			errored:Disconnect()
 			received:Disconnect()
