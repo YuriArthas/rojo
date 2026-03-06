@@ -26,3 +26,6 @@
 
 # JetBrains IDEs
 /.idea/
+
+# Downloaded local release artifacts
+/.downloaded-release/
