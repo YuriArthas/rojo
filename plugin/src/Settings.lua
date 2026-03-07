@@ -27,6 +27,8 @@ local defaultSettings = {
 	logLevel = "Info",
 	timingLogsEnabled = false,
 	authHeader = "",
+	helperPort = "44750",
+	helperAutoConnect = false,
 	priorEndpoints = {},
 }
 

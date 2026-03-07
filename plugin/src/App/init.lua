@@ -17,6 +17,7 @@ local Config = require(Plugin.Config)
 local Settings = require(Plugin.Settings)
 local strict = require(Plugin.strict)
 local Dictionary = require(Plugin.Dictionary)
+local HelperClient = require(Plugin.HelperClient)
 local ServeSession = require(Plugin.ServeSession)
 local ApiContext = require(Plugin.ApiContext)
 local PatchSet = require(Plugin.PatchSet)
@@ -56,6 +57,8 @@ function App:init()
 	local priorSyncInfo = self:getPriorSyncInfo()
 	self.host, self.setHost = Roact.createBinding(priorSyncInfo.host or "")
 	self.port, self.setPort = Roact.createBinding(priorSyncInfo.port or "")
+	local savedHelperPort = Settings:get("helperPort") or HelperClient.DEFAULT_HELPER_PORT
+	self.helperPort, self.setHelperPort = Roact.createBinding(savedHelperPort)
 	local savedAuthHeader = priorSyncInfo.authHeader
 		or Settings:get("authHeader")
 		or ""
@@ -131,6 +134,7 @@ function App:init()
 	self:setState({
 		appStatus = AppStatus.NotConnected,
 		guiEnabled = false,
+		helperAutoConnect = Settings:get("helperAutoConnect"),
 		confirmData = {},
 		patchData = {
 			patch = PatchSet.newEmpty(),
@@ -153,11 +157,17 @@ function App:init()
 			end
 		end)
 
-		self:tryAutoReconnect():andThen(function(didReconnect)
-			if not didReconnect then
-				self:checkSyncReminder()
-			end
-		end)
+		if Settings:get("helperAutoConnect") then
+			task.defer(function()
+				self:startSession()
+			end)
+		else
+			self:tryAutoReconnect():andThen(function(didReconnect)
+				if not didReconnect then
+					self:checkSyncReminder()
+				end
+			end)
+		end
 	end
 
 	if self:isAutoConnectPlaytestServerAvailable() then
@@ -380,6 +390,35 @@ function App:setAndStoreAuthHeader(value)
 	end
 end
 
+function App:setAndStoreHelperPort(value)
+	local normalized = HelperClient.normalizeHelperPort(value)
+	self.setHelperPort(normalized)
+	Settings:set("helperPort", normalized)
+end
+
+function App:setAndStoreHelperAutoConnect(value)
+	Settings:set("helperAutoConnect", value)
+	self:setState({
+		helperAutoConnect = value,
+	})
+end
+
+function App:getHelperPort()
+	return HelperClient.normalizeHelperPort(self.helperPort:getValue())
+end
+
+function App:requestHelperConnectionConfig()
+	local helperPort = self:getHelperPort()
+	Log.trace("Requesting Rojo config from helper on port {}", helperPort)
+	return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId)):andThen(function(config)
+		self.setHost(config.host)
+		self.setPort(config.port)
+		self:setAndStoreAuthHeader(config.authHeader or "")
+		self:setAndStoreHelperPort(helperPort)
+		return config
+	end)
+end
+
 function App:isSyncLockAvailable()
 	if #Players:GetPlayers() == 0 then
 		-- Team Create is not active, so no one can be holding the lock
@@ -446,15 +485,13 @@ function App:releaseSyncLock()
 end
 
 function App:findActiveServer()
-	local host, port = self:getHostAndPort()
-	local baseUrl = self:getBaseUrl()
-
-	Log.trace("Checking for active sync server at {}", baseUrl)
-
-	local apiContext = ApiContext.new(baseUrl, self:getAuthorizationHeader())
-	return apiContext:connect():andThen(function(serverInfo)
-		apiContext:disconnect()
-		return serverInfo, host, port
+	return self:requestHelperConnectionConfig():andThen(function(connection)
+		Log.trace("Checking for active sync server at {}", connection.baseUrl)
+		local apiContext = ApiContext.new(connection.baseUrl, connection.authHeader)
+		return apiContext:connect():andThen(function(serverInfo)
+			apiContext:disconnect()
+			return serverInfo, connection.host, connection.port
+		end)
 	end)
 end
 
@@ -651,35 +688,16 @@ function App:useRunningConnectionInfo()
 	end
 
 	Log.trace("Using connection info for play solo auto-connect")
-	local host, port = string.match(connectionInfo, "^(.+):(.-)$")
+	local host, port = HelperClient.parseBaseUrl(connectionInfo)
 
 	self.setHost(host)
 	self.setPort(port)
 end
 
-function App:startSession()
-	local claimedLock, priorOwner = self:claimSyncLock()
-	if not claimedLock then
-		local msg = string.format("Could not sync because user '%s' is already syncing", tostring(priorOwner))
-
-		Log.warn(msg)
-		self:addNotification({
-			text = msg,
-			timeout = 10,
-		})
-		self:setState({
-			appStatus = AppStatus.Error,
-			errorMessage = msg,
-			toolbarIcon = Assets.Images.PluginButtonWarning,
-		})
-
-		return
-	end
-
-	local host, port = self:getHostAndPort()
-
-	local baseUrl = self:getBaseUrl()
-	local apiContext = ApiContext.new(baseUrl, self:getAuthorizationHeader())
+function App:startSessionWithConnection(connection)
+	local host, port = connection.host, connection.port
+	local baseUrl = connection.baseUrl
+	local apiContext = ApiContext.new(baseUrl, connection.authHeader)
 
 	local serveSession = ServeSession.new({
 		apiContext = apiContext,
@@ -693,7 +711,6 @@ function App:startSession()
 	end)
 
 	self.cleanupPrecommit = serveSession:hookPrecommit(function(patch, instanceMap)
-		-- Build new tree for patch
 		self:setState({
 			patchTree = PatchTree.build(patch, instanceMap, { "Property", "Old", "New" }),
 		})
@@ -709,11 +726,9 @@ function App:startSession()
 			}
 
 			if PatchSet.isEmpty(patch) then
-				-- Keep existing patch info, but use new timestamp
 				newPatchData.patch = oldPatchData.patch
 				newPatchData.unapplied = oldPatchData.unapplied
 			elseif now - oldPatchData.timestamp < 2 then
-				-- Patches that apply in the same second are combined for human clarity
 				newPatchData.patch = PatchSet.assign(PatchSet.newEmpty(), oldPatchData.patch, patch)
 				newPatchData.unapplied = PatchSet.assign(PatchSet.newEmpty(), oldPatchData.unapplied, unappliedPatch)
 			end
@@ -766,8 +781,6 @@ function App:startSession()
 				},
 			})
 
-			-- Details being present indicates that this
-			-- disconnection was from an error.
 			if details ~= nil then
 				Log.warn("Disconnected from an error: {}", details)
 
@@ -799,7 +812,6 @@ function App:startSession()
 			return "Accept"
 		end
 
-		-- Play solo auto-connect does not require confirmation
 		if self:isAutoConnectPlaytestServerAvailable() then
 			Log.trace("Accepting patch without confirmation because play solo auto-connect is enabled")
 			return "Accept"
@@ -807,7 +819,6 @@ function App:startSession()
 
 		local confirmationBehavior = Settings:get("confirmationBehavior")
 		if confirmationBehavior == "Initial" then
-			-- Only confirm if we haven't synced this project yet this session
 			if self.knownProjects[serverInfo.projectName] then
 				Log.trace(
 					"Accepting patch without confirmation because project has already been connected and behavior is set to Initial"
@@ -815,7 +826,6 @@ function App:startSession()
 				return "Accept"
 			end
 		elseif confirmationBehavior == "Large Changes" then
-			-- Only confirm if the patch impacts many instances
 			if PatchSet.countInstances(patch) < Settings:get("largeChangesConfirmationThreshold") then
 				Log.trace(
 					"Accepting patch without confirmation because patch is small and behavior is set to Large Changes"
@@ -823,7 +833,6 @@ function App:startSession()
 				return "Accept"
 			end
 		elseif confirmationBehavior == "Unlisted PlaceId" then
-			-- Only confirm if the current placeId is not in the servePlaceIds allowlist
 			if serverInfo.expectedPlaceIds then
 				local isListed = table.find(serverInfo.expectedPlaceIds, tostring(game.PlaceId)) ~= nil
 				if isListed then
@@ -838,8 +847,6 @@ function App:startSession()
 			return "Accept"
 		end
 
-		-- The datamodel name gets overwritten by Studio, making confirmation of it intrusive
-		-- and unnecessary. This special case allows it to be accepted without confirmation.
 		if
 			PatchSet.hasAdditions(patch) == false
 			and PatchSet.hasRemoves(patch) == false
@@ -882,6 +889,49 @@ function App:startSession()
 	serveSession:start()
 
 	self.serveSession = serveSession
+end
+
+function App:startSession()
+	local claimedLock, priorOwner = self:claimSyncLock()
+	if not claimedLock then
+		local msg = string.format("Could not sync because user '%s' is already syncing", tostring(priorOwner))
+
+		Log.warn(msg)
+		self:addNotification({
+			text = msg,
+			timeout = 10,
+		})
+		self:setState({
+			appStatus = AppStatus.Error,
+			errorMessage = msg,
+			toolbarIcon = Assets.Images.PluginButtonWarning,
+		})
+
+		return
+	end
+
+	self:setState({
+		appStatus = AppStatus.Connecting,
+		connectingText = "Requesting connection info from helper...",
+		toolbarIcon = Assets.Images.PluginButton,
+	})
+
+	self:requestHelperConnectionConfig()
+		:andThen(function(connection)
+			self:startSessionWithConnection(connection)
+		end)
+		:catch(function(err)
+			self:releaseSyncLock()
+			self:setState({
+				appStatus = AppStatus.Error,
+				errorMessage = tostring(err),
+				toolbarIcon = Assets.Images.PluginButtonWarning,
+			})
+			self:addNotification({
+				text = tostring(err),
+				timeout = 10,
+			})
+		end)
 end
 
 function App:endSession()
@@ -954,13 +1004,13 @@ function App:render()
 					Tooltips = e(Tooltip.Container, nil),
 
 					NotConnectedPage = createPageElement(AppStatus.NotConnected, {
-						host = self.host,
-						onHostChange = self.setHost,
-						port = self.port,
-						onPortChange = self.setPort,
-						authHeader = self.authHeader,
-						onAuthHeaderChange = function(value)
-							self:setAndStoreAuthHeader(value)
+						helperPort = self.helperPort,
+						onHelperPortChange = function(value)
+							self:setAndStoreHelperPort(value)
+						end,
+						autoConnect = self.state.helperAutoConnect,
+						onAutoConnectChange = function(value)
+							self:setAndStoreHelperAutoConnect(value)
 						end,
 
 						onConnect = function()
