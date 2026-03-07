@@ -56,7 +56,10 @@ function App:init()
 	local priorSyncInfo = self:getPriorSyncInfo()
 	self.host, self.setHost = Roact.createBinding(priorSyncInfo.host or "")
 	self.port, self.setPort = Roact.createBinding(priorSyncInfo.port or "")
-	self.authHeader, self.setAuthHeader = Roact.createBinding("")
+	local savedAuthHeader = priorSyncInfo.authHeader
+		or Settings:get("authHeader")
+		or ""
+	self.authHeader, self.setAuthHeader = Roact.createBinding(savedAuthHeader)
 
 	self.confirmationBindable = Instance.new("BindableEvent")
 	self.confirmationEvent = self.confirmationBindable.Event
@@ -256,7 +259,7 @@ function App:checkForUpdates()
 	end
 end
 
-function App:getPriorSyncInfo(): { host: string?, port: string?, projectName: string?, timestamp: number? }
+function App:getPriorSyncInfo(): { host: string?, port: string?, authHeader: string?, projectName: string?, timestamp: number? }
 	local priorSyncInfos = Settings:get("priorEndpoints")
 	if not priorSyncInfos then
 		return {}
@@ -291,9 +294,14 @@ function App:setPriorSyncInfo(host: string, port: string, projectName: string)
 		return
 	end
 
+	local authHeader = self.authHeader:getValue()
+	authHeader = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
+	Settings:set("authHeader", authHeader)
+
 	priorSyncInfos[id] = {
 		host = if host ~= Config.defaultHost then host else nil,
 		port = if port ~= Config.defaultPort then port else nil,
+		authHeader = if authHeader ~= "" then authHeader else nil,
 		projectName = projectName,
 		timestamp = now,
 	}
@@ -350,6 +358,26 @@ function App:getAuthorizationHeader()
 	end
 
 	return "Bearer " .. authHeader
+end
+
+function App:setAndStoreAuthHeader(value)
+	self.setAuthHeader(value)
+	Settings:set("authHeader", value)
+
+	local priorSyncInfos = Settings:get("priorEndpoints") or {}
+	local id = tostring(game.PlaceId)
+	if ignorePlaceIds[id] then
+		return
+	end
+
+	local priorSyncInfo = priorSyncInfos[id]
+	if priorSyncInfo then
+		local normalized = value:gsub("^%s+", ""):gsub("%s+$", "")
+		priorSyncInfos[id] = Dictionary.merge(priorSyncInfo, {
+			authHeader = if normalized ~= "" then normalized else nil,
+		})
+		Settings:set("priorEndpoints", priorSyncInfos)
+	end
 end
 
 function App:isSyncLockAvailable()
@@ -931,7 +959,9 @@ function App:render()
 						port = self.port,
 						onPortChange = self.setPort,
 						authHeader = self.authHeader,
-						onAuthHeaderChange = self.setAuthHeader,
+						onAuthHeaderChange = function(value)
+							self:setAndStoreAuthHeader(value)
+						end,
 
 						onConnect = function()
 							self:startSession()

@@ -26,6 +26,7 @@ local defaultSettings = {
 	typecheckingEnabled = false,
 	logLevel = "Info",
 	timingLogsEnabled = false,
+	authHeader = "",
 	priorEndpoints = {},
 }
 
