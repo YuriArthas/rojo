@@ -189,6 +189,11 @@ function ServeSession:hookPostcommit(callback)
 end
 
 function ServeSession:start()
+	Log.info(
+		"Starting Rojo serve session (sessionId={}, messageCursor={})",
+		tostring(self.__apiContext.__sessionId),
+		tostring(self.__apiContext.__messageCursor)
+	)
 	self:__setStatus(Status.Connecting)
 	self:setLoadingText("Connecting to server...")
 
@@ -218,6 +223,7 @@ function ServeSession:start()
 			end)
 		end)
 		:catch(function(err)
+			Log.warn("Rojo serve session start failed: {}", err)
 			if self.__status ~= Status.Disconnected then
 				self:__stopInternal(err)
 			end
@@ -550,6 +556,13 @@ function ServeSession:__initialSync(serverInfo)
 end
 
 function ServeSession:__stopInternal(err)
+	Log.warn(
+		"Stopping Rojo serve session (status={}, sessionId={}, messageCursor={}, err={})",
+		tostring(self.__status),
+		tostring(self.__apiContext.__sessionId),
+		tostring(self.__apiContext.__messageCursor),
+		tostring(err)
+	)
 	self:__setStatus(Status.Disconnected, err)
 	self.__apiContext:disconnect()
 	self.__instanceMap:stop()

@@ -697,6 +697,15 @@ end
 function App:startSessionWithConnection(connection)
 	local host, port = connection.host, connection.port
 	local baseUrl = connection.baseUrl
+	Log.info(
+		"Starting Rojo session with helper-resolved connection (baseUrl={}, host={}, port={}, runState={{isEdit={}, isRunning={}, isServer={}}})",
+		tostring(baseUrl),
+		tostring(host),
+		tostring(port),
+		RunService:IsEdit(),
+		RunService:IsRunning(),
+		RunService:IsServer()
+	)
 	local apiContext = ApiContext.new(baseUrl, connection.authHeader)
 
 	local serveSession = ServeSession.new({
@@ -741,6 +750,14 @@ function App:startSessionWithConnection(connection)
 	end)
 
 	serveSession:onStatusChanged(function(status, details)
+		Log.info(
+			"Rojo serve session status changed to {} (details={}, runState={{isEdit={}, isRunning={}, isServer={}}})",
+			tostring(status),
+			tostring(details),
+			RunService:IsEdit(),
+			RunService:IsRunning(),
+			RunService:IsServer()
+		)
 		if status == ServeSession.Status.Connecting then
 			if self.dismissSyncReminder then
 				self.dismissSyncReminder()
@@ -892,6 +909,16 @@ function App:startSessionWithConnection(connection)
 end
 
 function App:startSession()
+	Log.info(
+		"Rojo startSession requested (runState={{isEdit={}, isRunning={}, isServer={}}}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
+		RunService:IsEdit(),
+		RunService:IsRunning(),
+		RunService:IsServer(),
+		tostring(Settings:get("helperPort")),
+		tostring(Settings:get("helperAutoConnect")),
+		tostring(Settings:get("autoReconnect")),
+		tostring(Settings:get("autoConnectPlaytestServer"))
+	)
 	local claimedLock, priorOwner = self:claimSyncLock()
 	if not claimedLock then
 		local msg = string.format("Could not sync because user '%s' is already syncing", tostring(priorOwner))
@@ -939,7 +966,12 @@ function App:endSession()
 		return
 	end
 
-	Log.trace("Disconnecting session")
+	Log.info(
+		"Disconnecting Rojo session by user action (runState={{isEdit={}, isRunning={}, isServer={}}})",
+		RunService:IsEdit(),
+		RunService:IsRunning(),
+		RunService:IsServer()
+	)
 
 	self.serveSession:stop()
 	self.serveSession = nil
