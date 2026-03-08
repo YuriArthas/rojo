@@ -161,10 +161,8 @@ function App:init()
 	})
 
 	Log.info(
-		"Rojo App initialized (runState={isEdit={}, isRunning={}, isServer={}}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={}, syncReminderMode={}, syncReminderPolling={})",
-		RunService:IsEdit(),
-		RunService:IsRunning(),
-		RunService:IsServer(),
+		"Rojo App initialized (runState={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={}, syncReminderMode={}, syncReminderPolling={})",
+		formatRunState(),
 		tostring(Settings:get("helperAutoConnect")),
 		tostring(Settings:get("autoReconnect")),
 		tostring(Settings:get("autoConnectPlaytestServer")),
@@ -463,12 +461,10 @@ end
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
 	Log.info(
-		"Requesting Rojo config from helper on port {} (placeId={}, runState={isEdit={}, isRunning={}, isServer={}})",
+		"Requesting Rojo config from helper on port {} (placeId={}, runState={})",
 		helperPort,
 		tostring(game.PlaceId),
-		RunService:IsEdit(),
-		RunService:IsRunning(),
-		RunService:IsServer()
+		formatRunState()
 	)
 	return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId)):andThen(function(config)
 		Log.info(
@@ -796,13 +792,11 @@ function App:startSessionWithConnection(connection)
 	local host, port = connection.host, connection.port
 	local baseUrl = connection.baseUrl
 	Log.info(
-		"Starting Rojo session with helper-resolved connection (baseUrl={}, host={}, port={}, runState={{isEdit={}, isRunning={}, isServer={}}})",
+		"Starting Rojo session with helper-resolved connection (baseUrl={}, host={}, port={}, runState={})",
 		tostring(baseUrl),
 		tostring(host),
 		tostring(port),
-		RunService:IsEdit(),
-		RunService:IsRunning(),
-		RunService:IsServer()
+		formatRunState()
 	)
 	local apiContext = ApiContext.new(baseUrl, connection.authHeader)
 
@@ -849,12 +843,10 @@ function App:startSessionWithConnection(connection)
 
 	serveSession:onStatusChanged(function(status, details)
 		Log.info(
-			"Rojo serve session status changed to {} (details={}, runState={{isEdit={}, isRunning={}, isServer={}}})",
+			"Rojo serve session status changed to {} (details={}, runState={})",
 			tostring(status),
 			tostring(details),
-			RunService:IsEdit(),
-			RunService:IsRunning(),
-			RunService:IsServer()
+			formatRunState()
 		)
 		if status == ServeSession.Status.Connecting then
 			if self.dismissSyncReminder then
@@ -1016,11 +1008,9 @@ end
 function App:startSession(source)
 	source = source or "manual"
 	Log.info(
-		"Rojo startSession requested (source={}, runState={{isEdit={}, isRunning={}, isServer={}}}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
+		"Rojo startSession requested (source={}, runState={}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
 		tostring(source),
-		RunService:IsEdit(),
-		RunService:IsRunning(),
-		RunService:IsServer(),
+		formatRunState(),
 		tostring(Settings:get("helperPort")),
 		tostring(Settings:get("helperAutoConnect")),
 		tostring(Settings:get("autoReconnect")),
@@ -1076,10 +1066,8 @@ function App:endSession()
 	end
 
 	Log.info(
-		"Disconnecting Rojo session by user action (runState={{isEdit={}, isRunning={}, isServer={}}})",
-		RunService:IsEdit(),
-		RunService:IsRunning(),
-		RunService:IsServer()
+		"Disconnecting Rojo session by user action (runState={})",
+		formatRunState()
 	)
 
 	self.serveSession:stop()
