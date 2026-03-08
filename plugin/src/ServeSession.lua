@@ -190,9 +190,10 @@ end
 
 function ServeSession:start()
 	Log.info(
-		"Starting Rojo serve session (sessionId={}, messageCursor={})",
+		"Starting Rojo serve session (sessionId={}, messageCursor={}, twoWaySync={})",
 		tostring(self.__apiContext.__sessionId),
-		tostring(self.__apiContext.__messageCursor)
+		tostring(self.__apiContext.__messageCursor),
+		tostring(self.__twoWaySync)
 	)
 	self:__setStatus(Status.Connecting)
 	self:setLoadingText("Connecting to server...")
@@ -200,12 +201,28 @@ function ServeSession:start()
 	self.__apiContext
 		:connect()
 		:andThen(function(serverInfo)
+			Log.info(
+				"Rojo serve session received server info (projectName={}, rootInstanceId={}, sessionId={})",
+				tostring(serverInfo.projectName),
+				tostring(serverInfo.rootInstanceId),
+				tostring(serverInfo.sessionId)
+			)
 			self:setLoadingText("Loading initial data from server...")
 			return self:__initialSync(serverInfo):andThen(function()
+				Log.info(
+					"Rojo serve session initial sync completed (sessionId={}, messageCursor={})",
+					tostring(self.__apiContext.__sessionId),
+					tostring(self.__apiContext.__messageCursor)
+				)
 				self:setLoadingText("Starting sync loop...")
 				self:__setStatus(Status.Connected, serverInfo.projectName)
 				self:__applyGameAndPlaceId(serverInfo)
 
+				Log.info(
+					"Rojo serve session beginning websocket connect (sessionId={}, messageCursor={})",
+					tostring(self.__apiContext.__sessionId),
+					tostring(self.__apiContext.__messageCursor)
+				)
 				return self.__apiContext:connectWebSocket({
 					["messages"] = function(messagesPacket)
 						if self.__status == Status.Disconnected then

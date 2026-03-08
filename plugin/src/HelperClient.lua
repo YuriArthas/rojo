@@ -3,6 +3,7 @@ local HttpService = game:GetService("HttpService")
 local Rojo = script:FindFirstAncestor("Rojo")
 local Packages = Rojo.Packages
 
+local Log = require(Packages.Log)
 local Promise = require(Packages.Promise)
 
 local DEFAULT_HELPER_PORT = "44750"
@@ -45,15 +46,27 @@ local function getRojoConfig(helperPort, placeId)
 			Url = string.format("http://127.0.0.1:%s/v1/rojo/config?placeId=%s", normalizedPort, tostring(placeId)),
 			Method = "GET",
 		}
+		Log.info(
+			"Requesting Rojo helper config (helperPort={}, normalizedPort={}, placeId={})",
+			tostring(helperPort),
+			tostring(normalizedPort),
+			tostring(placeId)
+		)
 
 		local ok, response = pcall(function()
 			return HttpService:RequestAsync(request)
 		end)
 		if not ok then
+			Log.warn("Rojo helper config request failed before HTTP response: {}", tostring(response))
 			return reject("Failed to request helper config: " .. tostring(response))
 		end
 
 		if not response.Success then
+			Log.warn(
+				"Rojo helper config request returned non-success status (statusCode={}, body={})",
+				tostring(response.StatusCode),
+				trim(response.Body)
+			)
 			return reject(string.format(
 				"Helper returned %d while requesting Rojo config: %s",
 				response.StatusCode,
@@ -65,14 +78,23 @@ local function getRojoConfig(helperPort, placeId)
 			return HttpService:JSONDecode(response.Body)
 		end)
 		if not decodeOk then
+			Log.warn("Rojo helper config JSON decode failed: {}", tostring(decoded))
 			return reject("Failed to decode helper JSON: " .. tostring(decoded))
 		end
 
 		if type(decoded) ~= "table" or type(decoded.base_url) ~= "string" then
+			Log.warn("Rojo helper config response missing base_url")
 			return reject("Helper response did not include a base_url")
 		end
 
 		local host, port = parseBaseUrl(decoded.base_url)
+		Log.info(
+			"Rojo helper config resolved successfully (baseUrl={}, host={}, port={}, authHeaderPresent={})",
+			tostring(decoded.base_url),
+			tostring(host),
+			tostring(port),
+			decoded.auth_header ~= nil and tostring(decoded.auth_header) ~= ""
+		)
 		resolve({
 			baseUrl = decoded.base_url,
 			authHeader = decoded.auth_header,

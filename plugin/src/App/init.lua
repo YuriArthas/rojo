@@ -51,6 +51,15 @@ local e = Roact.createElement
 
 local App = Roact.Component:extend("App")
 
+local function formatRunState()
+	return string.format(
+		"{isEdit=%s, isRunning=%s, isServer=%s}",
+		tostring(RunService:IsEdit()),
+		tostring(RunService:IsRunning()),
+		tostring(RunService:IsServer())
+	)
+end
+
 function App:init()
 	preloadAssets()
 
@@ -130,6 +139,12 @@ function App:init()
 	self.disconnectPrereleasesCheckChanged = Settings:onChanged("checkForPrereleases", function()
 		self:checkForUpdates()
 	end)
+	self.disconnectAutoReconnectChanged = Settings:onChanged("autoReconnect", function(value)
+		Log.info("Setting autoReconnect changed to {}", tostring(value))
+	end)
+	self.disconnectHelperAutoConnectChanged = Settings:onChanged("helperAutoConnect", function(value)
+		Log.info("Setting helperAutoConnect changed to {}", tostring(value))
+	end)
 
 	self:setState({
 		appStatus = AppStatus.NotConnected,
@@ -145,11 +160,40 @@ function App:init()
 		toolbarIcon = Assets.Images.PluginButton,
 	})
 
+	Log.info(
+		"Rojo App initialized (runState={isEdit={}, isRunning={}, isServer={}}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={}, syncReminderMode={}, syncReminderPolling={})",
+		RunService:IsEdit(),
+		RunService:IsRunning(),
+		RunService:IsServer(),
+		tostring(Settings:get("helperAutoConnect")),
+		tostring(Settings:get("autoReconnect")),
+		tostring(Settings:get("autoConnectPlaytestServer")),
+		tostring(Settings:get("syncReminderMode")),
+		tostring(Settings:get("syncReminderPolling"))
+	)
+
+	self.connectionUrlChangedConnection = workspace:GetAttributeChangedSignal("__Rojo_ConnectionUrl"):Connect(function()
+		Log.info(
+			"Workspace __Rojo_ConnectionUrl changed to {} (runState={})",
+			tostring(workspace:GetAttribute("__Rojo_ConnectionUrl")),
+			formatRunState()
+		)
+	end)
+	self.lastObservedRunState = formatRunState()
+	self.runStateLogConnection = RunService.Heartbeat:Connect(function()
+		local runState = formatRunState()
+		if runState ~= self.lastObservedRunState then
+			Log.info("Observed run state transition {} -> {}", tostring(self.lastObservedRunState), runState)
+			self.lastObservedRunState = runState
+		end
+	end)
+
 	if RunService:IsEdit() then
 		self:checkForUpdates()
 
 		self:startSyncReminderPolling()
 		self.disconnectSyncReminderPollingChanged = Settings:onChanged("syncReminderPolling", function(enabled)
+			Log.info("Setting syncReminderPolling changed to {}", tostring(enabled))
 			if enabled then
 				self:startSyncReminderPolling()
 			else
@@ -159,7 +203,7 @@ function App:init()
 
 		if Settings:get("helperAutoConnect") then
 			task.defer(function()
-				self:startSession()
+				self:startSession("helper_auto_connect")
 			end)
 		else
 			self:tryAutoReconnect():andThen(function(didReconnect)
@@ -172,9 +216,10 @@ function App:init()
 
 	if self:isAutoConnectPlaytestServerAvailable() then
 		self:useRunningConnectionInfo()
-		self:startSession()
+		self:startSession("playtest_server_auto_connect")
 	end
 	self.autoConnectPlaytestServerListener = Settings:onChanged("autoConnectPlaytestServer", function(enabled)
+		Log.info("Setting autoConnectPlaytestServer changed to {}", tostring(enabled))
 		if enabled then
 			if self:isAutoConnectPlaytestServerWriteable() and self.serveSession ~= nil then
 				-- Write the existing session
@@ -195,8 +240,16 @@ function App:willUnmount()
 
 	self.disconnectUpdatesCheckChanged()
 	self.disconnectPrereleasesCheckChanged()
+	self.disconnectAutoReconnectChanged()
+	self.disconnectHelperAutoConnectChanged()
 	if self.disconnectSyncReminderPollingChanged then
 		self.disconnectSyncReminderPollingChanged()
+	end
+	if self.connectionUrlChangedConnection then
+		self.connectionUrlChangedConnection:Disconnect()
+	end
+	if self.runStateLogConnection then
+		self.runStateLogConnection:Disconnect()
 	end
 
 	self:stopSyncReminderPolling()
@@ -409,8 +462,22 @@ end
 
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
-	Log.trace("Requesting Rojo config from helper on port {}", helperPort)
+	Log.info(
+		"Requesting Rojo config from helper on port {} (placeId={}, runState={isEdit={}, isRunning={}, isServer={}})",
+		helperPort,
+		tostring(game.PlaceId),
+		RunService:IsEdit(),
+		RunService:IsRunning(),
+		RunService:IsServer()
+	)
 	return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId)):andThen(function(config)
+		Log.info(
+			"Received Rojo config from helper (baseUrl={}, host={}, port={}, authHeaderPresent={})",
+			tostring(config.baseUrl),
+			tostring(config.host),
+			tostring(config.port),
+			config.authHeader ~= nil and config.authHeader ~= ""
+		)
 		self.setHost(config.host)
 		self.setPort(config.port)
 		self:setAndStoreAuthHeader(config.authHeader or "")
@@ -485,10 +552,20 @@ function App:releaseSyncLock()
 end
 
 function App:findActiveServer()
+	Log.info(
+		"Checking for active Rojo server via helper (autoReconnect={}, syncReminderPolling={})",
+		tostring(Settings:get("autoReconnect")),
+		tostring(Settings:get("syncReminderPolling"))
+	)
 	return self:requestHelperConnectionConfig():andThen(function(connection)
-		Log.trace("Checking for active sync server at {}", connection.baseUrl)
+		Log.info("Checking for active sync server at {}", connection.baseUrl)
 		local apiContext = ApiContext.new(connection.baseUrl, connection.authHeader)
 		return apiContext:connect():andThen(function(serverInfo)
+			Log.info(
+				"Active Rojo server probe succeeded (projectName={}, sessionId={})",
+				tostring(serverInfo.projectName),
+				tostring(serverInfo.sessionId)
+			)
 			apiContext:disconnect()
 			return serverInfo, connection.host, connection.port
 		end)
@@ -497,31 +574,40 @@ end
 
 function App:tryAutoReconnect()
 	if not Settings:get("autoReconnect") then
+		Log.info("Skipping auto-reconnect because setting is disabled")
 		return Promise.resolve(false)
 	end
 
 	local priorSyncInfo = self:getPriorSyncInfo()
 	if not priorSyncInfo.projectName then
-		Log.trace("No prior sync info found, skipping auto-reconnect")
+		Log.info("Skipping auto-reconnect because no prior sync info exists for this place")
 		return Promise.resolve(false)
 	end
 
+	Log.info(
+		"Attempting auto-reconnect for prior project {}",
+		tostring(priorSyncInfo.projectName)
+	)
+
 	return self:findActiveServer()
 		:andThen(function(serverInfo)
-			-- change
 			if serverInfo.projectName == priorSyncInfo.projectName then
-				Log.trace("Auto-reconnect found matching server, reconnecting...")
+				Log.info("Auto-reconnect found matching server, reconnecting")
 				self:addNotification({
 					text = `Auto-reconnect discovered project '{serverInfo.projectName}'...`,
 				})
-				self:startSession()
+				self:startSession("auto_reconnect")
 				return true
 			end
-			Log.trace("Auto-reconnect found different server, not reconnecting")
+			Log.info(
+				"Auto-reconnect found different server, not reconnecting (priorProject={}, discoveredProject={})",
+				tostring(priorSyncInfo.projectName),
+				tostring(serverInfo.projectName)
+			)
 			return false
 		end)
-		:catch(function()
-			Log.trace("Auto-reconnect did not find a server, not reconnecting")
+		:catch(function(err)
+			Log.info("Auto-reconnect did not find a usable server: {}", tostring(err))
 			return false
 		end)
 end
@@ -529,11 +615,13 @@ end
 function App:checkSyncReminder()
 	local syncReminderMode = Settings:get("syncReminderMode")
 	if syncReminderMode == "None" then
+		Log.trace("Skipping sync reminder because syncReminderMode is None")
 		return
 	end
 
 	if self.serveSession ~= nil or not self:isSyncLockAvailable() then
 		-- Already syncing or cannot sync, no reason to remind
+		Log.trace("Skipping sync reminder because session is active or sync lock is unavailable")
 		return
 	end
 
@@ -541,12 +629,19 @@ function App:checkSyncReminder()
 
 	self:findActiveServer()
 		:andThen(function(serverInfo, host, port)
+			Log.info(
+				"Sync reminder found active server (projectName={}, host={}, port={})",
+				tostring(serverInfo.projectName),
+				tostring(host),
+				tostring(port)
+			)
 			self:sendSyncReminder(
 				`Project '{serverInfo.projectName}' is serving at {host}:{port}.\nWould you like to connect?`,
 				{ "Connect", "Dismiss" }
 			)
 		end)
-		:catch(function()
+		:catch(function(err)
+			Log.info("Sync reminder did not find an active server: {}", tostring(err))
 			if priorSyncInfo.timestamp and priorSyncInfo.projectName then
 				-- We didn't find an active server,
 				-- but this place has a prior sync
@@ -619,7 +714,7 @@ function App:sendSyncReminder(message: string, shownActions: { string })
 					style = "Solid",
 					layoutOrder = connectIndex,
 					onClick = function()
-						self:startSession()
+						self:startSession("sync_reminder")
 					end,
 				}
 				else nil,
@@ -664,30 +759,33 @@ end
 
 function App:setRunningConnectionInfo(baseUrl: string)
 	if not self:isAutoConnectPlaytestServerWriteable() then
+		Log.info("Skipping setting play solo connection info because current run state is not writeable: {}", formatRunState())
 		return
 	end
 
-	Log.trace("Setting connection info for play solo auto-connect")
+	Log.info("Setting connection info for play solo auto-connect to {}", tostring(baseUrl))
 	workspace:SetAttribute("__Rojo_ConnectionUrl", baseUrl)
 end
 
 function App:clearRunningConnectionInfo()
 	if not RunService:IsEdit() then
 		-- Only write connection info from edit mode
+		Log.info("Skipping clear of play solo connection info because current run state is not edit: {}", formatRunState())
 		return
 	end
 
-	Log.trace("Clearing connection info for play solo auto-connect")
+	Log.info("Clearing connection info for play solo auto-connect")
 	workspace:SetAttribute("__Rojo_ConnectionUrl", nil)
 end
 
 function App:useRunningConnectionInfo()
 	local connectionInfo = workspace:GetAttribute("__Rojo_ConnectionUrl")
 	if not connectionInfo then
+		Log.info("No playtest server connection info found on workspace attribute")
 		return
 	end
 
-	Log.trace("Using connection info for play solo auto-connect")
+	Log.info("Using connection info for play solo auto-connect: {}", tostring(connectionInfo))
 	local host, port = HelperClient.parseBaseUrl(connectionInfo)
 
 	self.setHost(host)
@@ -787,6 +885,13 @@ function App:startSessionWithConnection(connection)
 				text = string.format("Connected to session '%s' at %s.", details, address),
 			})
 		elseif status == ServeSession.Status.Disconnected then
+			Log.info(
+				"Rojo session entered disconnected state (details={}, autoReconnect={}, syncReminderMode={}, syncReminderPolling={})",
+				tostring(details),
+				tostring(Settings:get("autoReconnect")),
+				tostring(Settings:get("syncReminderMode")),
+				tostring(Settings:get("syncReminderPolling"))
+			)
 			self.serveSession = nil
 			self:releaseSyncLock()
 			self:clearRunningConnectionInfo()
@@ -908,9 +1013,11 @@ function App:startSessionWithConnection(connection)
 	self.serveSession = serveSession
 end
 
-function App:startSession()
+function App:startSession(source)
+	source = source or "manual"
 	Log.info(
-		"Rojo startSession requested (runState={{isEdit={}, isRunning={}, isServer={}}}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
+		"Rojo startSession requested (source={}, runState={{isEdit={}, isRunning={}, isServer={}}}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
+		tostring(source),
 		RunService:IsEdit(),
 		RunService:IsRunning(),
 		RunService:IsServer(),
@@ -945,9 +1052,11 @@ function App:startSession()
 
 	self:requestHelperConnectionConfig()
 		:andThen(function(connection)
+			Log.info("Rojo startSession source {} obtained helper connection, starting serve session", tostring(source))
 			self:startSessionWithConnection(connection)
 		end)
 		:catch(function(err)
+			Log.warn("Rojo startSession source {} failed before serve session start: {}", tostring(source), tostring(err))
 			self:releaseSyncLock()
 			self:setState({
 				appStatus = AppStatus.Error,
@@ -1046,7 +1155,7 @@ function App:render()
 						end,
 
 						onConnect = function()
-							self:startSession()
+							self:startSession("ui_connect_button")
 						end,
 
 						onNavigateSettings = function()
@@ -1142,7 +1251,7 @@ function App:render()
 				bindable = true,
 				onTriggered = function()
 					if self.serveSession == nil or self.serveSession:getStatus() == ServeSession.Status.NotStarted then
-						self:startSession()
+						self:startSession("toolbar_toggle")
 					elseif
 						self.serveSession ~= nil and self.serveSession:getStatus() == ServeSession.Status.Connected
 					then
@@ -1159,7 +1268,7 @@ function App:render()
 				bindable = true,
 				onTriggered = function()
 					if self.serveSession == nil or self.serveSession:getStatus() == ServeSession.Status.NotStarted then
-						self:startSession()
+						self:startSession("action_connect")
 					end
 				end,
 			}),

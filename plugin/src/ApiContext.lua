@@ -337,13 +337,27 @@ function ApiContext:connectWebSocket(packetHandlers)
 		self.__wsConnectedAt = nowSeconds()
 		self.__wsLastMessageAt = nowSeconds()
 		self.__wsMessageCount = 0
-		Log.info("Created Rojo websocket client for {}", url)
+		Log.info(
+			"Created Rojo websocket client for {} (sessionId={}, cursor={}, headers={})",
+			url,
+			tostring(self.__sessionId),
+			tostring(self.__messageCursor),
+			self.__requestHeaders ~= nil
+		)
 
 		local closed, errored, received
+		Log.info("Attaching Rojo websocket event listeners for {}", url)
 
 		received = self.__wsClient.MessageReceived:Connect(function(msg)
 			self.__wsLastMessageAt = nowSeconds()
 			self.__wsMessageCount = self.__wsMessageCount + 1
+			if self.__wsMessageCount == 1 then
+				Log.info(
+					"Rojo websocket received first message for {} after {} seconds",
+					url,
+					formatAgeSeconds(self.__wsConnectedAt)
+				)
+			end
 			local data = Http.msgpackDecode(msg)
 			if data.sessionId ~= self.__sessionId then
 				Log.warn("Received message with wrong session ID; ignoring")
@@ -380,8 +394,10 @@ function ApiContext:connectWebSocket(packetHandlers)
 			received:Disconnect()
 
 			if self.__connected then
+				Log.warn("Rejecting Rojo websocket promise because connection closed while context is still connected")
 				reject("WebSocket connection closed unexpectedly")
 			else
+				Log.info("Resolving Rojo websocket promise after intentional disconnect")
 				resolve()
 			end
 		end)
@@ -401,6 +417,7 @@ function ApiContext:connectWebSocket(packetHandlers)
 			errored:Disconnect()
 			received:Disconnect()
 
+			Log.warn("Rejecting Rojo websocket promise because websocket emitted error event")
 			reject("WebSocket error: " .. code .. " - " .. msg)
 		end)
 	end)
