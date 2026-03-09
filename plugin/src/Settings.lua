@@ -26,7 +26,6 @@ local defaultSettings = {
 	typecheckingEnabled = false,
 	logLevel = "Info",
 	timingLogsEnabled = false,
-	authHeader = "",
 	helperPort = "44750",
 	helperAutoConnect = false,
 	priorEndpoints = {},
@@ -37,6 +36,25 @@ local Settings = {}
 Settings._values = table.clone(defaultSettings)
 Settings._updateListeners = {}
 Settings._bindings = {}
+
+local function stripLegacyAuthCache(priorEndpoints)
+	if type(priorEndpoints) ~= "table" then
+		return priorEndpoints, false
+	end
+
+	local changed = false
+	local sanitized = table.clone(priorEndpoints)
+	for placeId, syncInfo in pairs(priorEndpoints) do
+		if type(syncInfo) == "table" and syncInfo.authHeader ~= nil then
+			local nextSyncInfo = table.clone(syncInfo)
+			nextSyncInfo.authHeader = nil
+			sanitized[placeId] = nextSyncInfo
+			changed = true
+		end
+	end
+
+	return sanitized, changed
+end
 
 if plugin then
 	for name, defaultValue in pairs(Settings._values) do
@@ -50,6 +68,17 @@ if plugin then
 			Settings._values[name] = savedValue
 		end
 	end
+
+	local sanitizedPriorEndpoints, removedLegacyPriorAuth = stripLegacyAuthCache(Settings._values.priorEndpoints)
+	if removedLegacyPriorAuth then
+		Settings._values.priorEndpoints = sanitizedPriorEndpoints
+		task.spawn(plugin.SetSetting, plugin, "Rojo_priorEndpoints", sanitizedPriorEndpoints)
+	end
+
+	if plugin:GetSetting("Rojo_authHeader") ~= nil then
+		task.spawn(plugin.SetSetting, plugin, "Rojo_authHeader", nil)
+	end
+
 	Log.trace("Loaded settings from plugin store")
 end
 

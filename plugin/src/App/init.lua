@@ -51,6 +51,9 @@ local e = Roact.createElement
 
 local App = Roact.Component:extend("App")
 
+local AUTO_CONNECT_HELPER_MAX_ATTEMPTS = 4
+local AUTO_CONNECT_HELPER_RETRY_DELAY_SECONDS = 2
+
 local function formatRunState()
 	return string.format(
 		"{isEdit=%s, isRunning=%s, isServer=%s}",
@@ -58,6 +61,12 @@ local function formatRunState()
 		tostring(RunService:IsRunning()),
 		tostring(RunService:IsServer())
 	)
+end
+
+local function waitForSeconds(seconds)
+	return Promise.new(function(resolve)
+		task.delay(seconds, resolve)
+	end)
 end
 
 function App:init()
@@ -68,10 +77,6 @@ function App:init()
 	self.port, self.setPort = Roact.createBinding(priorSyncInfo.port or "")
 	local savedHelperPort = Settings:get("helperPort") or HelperClient.DEFAULT_HELPER_PORT
 	self.helperPort, self.setHelperPort = Roact.createBinding(savedHelperPort)
-	local savedAuthHeader = priorSyncInfo.authHeader
-		or Settings:get("authHeader")
-		or ""
-	self.authHeader, self.setAuthHeader = Roact.createBinding(savedAuthHeader)
 
 	self.confirmationBindable = Instance.new("BindableEvent")
 	self.confirmationEvent = self.confirmationBindable.Event
@@ -320,7 +325,7 @@ function App:checkForUpdates()
 	end
 end
 
-function App:getPriorSyncInfo(): { host: string?, port: string?, authHeader: string?, projectName: string?, timestamp: number? }
+function App:getPriorSyncInfo(): { host: string?, port: string?, projectName: string?, timestamp: number? }
 	local priorSyncInfos = Settings:get("priorEndpoints")
 	if not priorSyncInfos then
 		return {}
@@ -355,14 +360,9 @@ function App:setPriorSyncInfo(host: string, port: string, projectName: string)
 		return
 	end
 
-	local authHeader = self.authHeader:getValue()
-	authHeader = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
-	Settings:set("authHeader", authHeader)
-
 	priorSyncInfos[id] = {
 		host = if host ~= Config.defaultHost then host else nil,
 		port = if port ~= Config.defaultPort then port else nil,
-		authHeader = if authHeader ~= "" then authHeader else nil,
 		projectName = projectName,
 		timestamp = now,
 	}
@@ -406,39 +406,18 @@ function App:getBaseUrl()
 	return string.format("http://%s:%s", host, port)
 end
 
-function App:getAuthorizationHeader()
-	local authHeader = self.authHeader:getValue()
-
-	authHeader = authHeader:gsub("^%s+", ""):gsub("%s+$", "")
-	if authHeader == "" then
+function App:getSavedConnectionConfig()
+	local priorSyncInfo = self:getPriorSyncInfo()
+	if priorSyncInfo.host == nil and priorSyncInfo.port == nil then
 		return nil
 	end
 
-	if string.find(authHeader, "%s") then
-		return authHeader
-	end
-
-	return "Bearer " .. authHeader
-end
-
-function App:setAndStoreAuthHeader(value)
-	self.setAuthHeader(value)
-	Settings:set("authHeader", value)
-
-	local priorSyncInfos = Settings:get("priorEndpoints") or {}
-	local id = tostring(game.PlaceId)
-	if ignorePlaceIds[id] then
-		return
-	end
-
-	local priorSyncInfo = priorSyncInfos[id]
-	if priorSyncInfo then
-		local normalized = value:gsub("^%s+", ""):gsub("%s+$", "")
-		priorSyncInfos[id] = Dictionary.merge(priorSyncInfo, {
-			authHeader = if normalized ~= "" then normalized else nil,
-		})
-		Settings:set("priorEndpoints", priorSyncInfos)
-	end
+	local host, port = self:getHostAndPort()
+	return {
+		baseUrl = self:getBaseUrl(),
+		host = host,
+		port = port,
+	}
 end
 
 function App:setAndStoreHelperPort(value)
@@ -476,10 +455,42 @@ function App:requestHelperConnectionConfig()
 		)
 		self.setHost(config.host)
 		self.setPort(config.port)
-		self:setAndStoreAuthHeader(config.authHeader or "")
 		self:setAndStoreHelperPort(helperPort)
 		return config
 	end)
+end
+
+function App:requestHelperConnectionConfigWithRetry(maxAttempts: number, retryDelaySeconds: number, reason: string)
+	local attempt = 1
+
+	local function run()
+		return self:requestHelperConnectionConfig():catch(function(err)
+			if attempt >= maxAttempts then
+				return Promise.reject(err)
+			end
+
+			Log.warn(
+				"Rojo helper config request failed for {} on attempt {}/{}: {}. Retrying in {} seconds",
+				tostring(reason),
+				tostring(attempt),
+				tostring(maxAttempts),
+				tostring(err),
+				tostring(retryDelaySeconds)
+			)
+			attempt += 1
+			return waitForSeconds(retryDelaySeconds):andThen(run)
+		end)
+	end
+
+	return run()
+end
+
+function App:requestAutoConnectHelperConnection(reason: string)
+	return self:requestHelperConnectionConfigWithRetry(
+		AUTO_CONNECT_HELPER_MAX_ATTEMPTS,
+		AUTO_CONNECT_HELPER_RETRY_DELAY_SECONDS,
+		reason
+	)
 end
 
 function App:isSyncLockAvailable()
@@ -553,7 +564,19 @@ function App:findActiveServer()
 		tostring(Settings:get("autoReconnect")),
 		tostring(Settings:get("syncReminderPolling"))
 	)
-	return self:requestHelperConnectionConfig():andThen(function(connection)
+	return self:requestAutoConnectHelperConnection("active_server_probe"):catch(function(helperErr)
+		local savedConnection = self:getSavedConnectionConfig()
+		if savedConnection == nil then
+			return Promise.reject(helperErr)
+		end
+
+		Log.warn(
+			"Helper config request failed during active server probe, falling back to saved endpoint {}: {}",
+			tostring(savedConnection.baseUrl),
+			tostring(helperErr)
+		)
+		return savedConnection
+	end):andThen(function(connection)
 		Log.info("Checking for active sync server at {}", connection.baseUrl)
 		local apiContext = ApiContext.new(connection.baseUrl, connection.authHeader)
 		return apiContext:connect():andThen(function(serverInfo)
@@ -1040,7 +1063,12 @@ function App:startSession(source)
 		toolbarIcon = Assets.Images.PluginButton,
 	})
 
-	self:requestHelperConnectionConfig()
+	local requestConnection = self.requestHelperConnectionConfig
+	if source == "helper_auto_connect" or source == "auto_reconnect" then
+		requestConnection = self.requestAutoConnectHelperConnection
+	end
+
+	requestConnection(self, source)
 		:andThen(function(connection)
 			Log.info("Rojo startSession source {} obtained helper connection, starting serve session", tostring(source))
 			self:startSessionWithConnection(connection)
