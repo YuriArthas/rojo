@@ -23,6 +23,13 @@ use crate::{
     snapshot_middleware::snapshot_from_vfs,
 };
 
+#[derive(Debug, Default, Clone)]
+pub struct ServeMetadata {
+    pub workspace_path: Option<String>,
+    pub task_id: Option<String>,
+    pub public_base_url: Option<String>,
+}
+
 /// Contains all of the state for a Rojo serve session. A serve session is used
 /// when we need to build a Rojo tree and possibly rebuild it when input files
 /// change.
@@ -63,6 +70,8 @@ pub struct ServeSession {
     /// an operation that needs to be atomic.
     session_id: SessionId,
 
+    serve_metadata: ServeMetadata,
+
     /// The tree of Roblox instances associated with this session that will be
     /// updated in real-time. This is derived from the session's VFS and will
     /// eventually be mutable to connected clients.
@@ -95,6 +104,14 @@ impl ServeSession {
     /// currently loaded from the filesystem directly instead of through the
     /// in-memory filesystem layer.
     pub fn new<P: AsRef<Path>>(vfs: Vfs, start_path: P) -> Result<Self, ServeSessionError> {
+        Self::new_with_metadata(vfs, start_path, ServeMetadata::default())
+    }
+
+    pub fn new_with_metadata<P: AsRef<Path>>(
+        vfs: Vfs,
+        start_path: P,
+        serve_metadata: ServeMetadata,
+    ) -> Result<Self, ServeSessionError> {
         let start_path = start_path.as_ref();
         let start_time = Instant::now();
 
@@ -139,6 +156,7 @@ impl ServeSession {
             change_processor,
             start_time,
             session_id,
+            serve_metadata,
             root_project,
             tree,
             message_queue,
@@ -213,6 +231,18 @@ impl ServeSession {
 
     pub fn root_project(&self) -> &Project {
         &self.root_project
+    }
+
+    pub fn workspace_path(&self) -> Option<&str> {
+        self.serve_metadata.workspace_path.as_deref()
+    }
+
+    pub fn task_id(&self) -> Option<&str> {
+        self.serve_metadata.task_id.as_deref()
+    }
+
+    pub fn public_base_url(&self) -> Option<&str> {
+        self.serve_metadata.public_base_url.as_deref()
     }
 }
 

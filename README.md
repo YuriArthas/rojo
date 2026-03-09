@@ -26,6 +26,18 @@ Rojo enables:
 * Streaming `rbxmx` and `rbxm` models into your game in real time
 * Packaging and deploying your project to Roblox.com from the command line
 
+## Clock-p Task Cluster Integration
+
+`clock-p` 的 Roblox 联调链路会把一个 worktree 的调试单元抽象成一个 task 化 debug cluster。
+
+在这条链路里，Rojo 继续只承担数据面职责，但会额外暴露 task 级服务身份，方便上层做 route 和 workspace 校验：
+
+- `task_id`
+- `workspace`
+- `public_base_url`
+
+这些字段会通过 `rojo serve` 的额外参数注入，并在 `/api/rojo` 里返回。这样 platform supervisor、helper、插件和大模型都能确认“当前连到的是哪一个 task 化实例”，而不是继续依赖旧的 `place_id -> 唯一实例` 假设。
+
 In the future, Rojo will be able to:
 
 * Sync instances from Roblox Studio to the filesystem
