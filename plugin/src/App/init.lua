@@ -446,6 +446,30 @@ function App:resetHelperBinding()
 	self.helperLaunchId = nil
 end
 
+function App:updateHelperBindingFromConfig(config)
+	local taskId = if type(config.taskId) == "string" and config.taskId ~= "" then config.taskId else nil
+	local generation = if type(config.generation) == "number" then config.generation else nil
+	local launchId = if type(config.launchId) == "string" and config.launchId ~= "" then config.launchId else nil
+
+	if taskId ~= nil and generation ~= nil and launchId ~= nil then
+		self.helperTaskId = taskId
+		self.helperTaskGeneration = generation
+		self.helperLaunchId = launchId
+		return
+	end
+
+	if taskId ~= nil or generation ~= nil or launchId ~= nil then
+		Log.warn(
+			"Helper returned partial task binding ({}, {}, {}); clearing cached helper binding.",
+			tostring(taskId),
+			tostring(generation),
+			tostring(launchId)
+		)
+	end
+
+	self:resetHelperBinding()
+end
+
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
 	Log.info(
@@ -466,11 +490,15 @@ function App:requestHelperConnectionConfig()
 	)
 	if self.helperTaskId ~= nil or self.helperTaskGeneration ~= nil or self.helperLaunchId ~= nil then
 		request = request:catch(function(err)
+			local staleTaskId = self.helperTaskId
+			local staleGeneration = self.helperTaskGeneration
+			local staleLaunchId = self.helperLaunchId
+			self:resetHelperBinding()
 			Log.warn(
 				"Helper config lookup for cached task binding ({}, {}, {}) failed: {}. Retrying without cached binding.",
-				tostring(self.helperTaskId),
-				tostring(self.helperTaskGeneration),
-				tostring(self.helperLaunchId),
+				tostring(staleTaskId),
+				tostring(staleGeneration),
+				tostring(staleLaunchId),
 				tostring(err)
 			)
 			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil, nil)
@@ -487,9 +515,7 @@ function App:requestHelperConnectionConfig()
 			tostring(config.launchId),
 			config.authHeader ~= nil and config.authHeader ~= ""
 		)
-		self.helperTaskId = if type(config.taskId) == "string" and config.taskId ~= "" then config.taskId else self.helperTaskId
-		self.helperTaskGeneration = if type(config.generation) == "number" then config.generation else self.helperTaskGeneration
-		self.helperLaunchId = if type(config.launchId) == "string" and config.launchId ~= "" then config.launchId else self.helperLaunchId
+		self:updateHelperBindingFromConfig(config)
 		self.setHost(config.host)
 		self.setPort(config.port)
 		self:setAndStoreHelperPort(helperPort)
