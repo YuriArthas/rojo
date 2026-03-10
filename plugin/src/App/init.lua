@@ -84,6 +84,7 @@ function App:init()
 	self.notifId = 0
 	self.helperTaskId = nil
 	self.helperTaskGeneration = nil
+	self.helperLaunchId = nil
 
 	self.waypointConnection = ChangeHistoryService.OnUndo:Connect(function(action: string)
 		if not string.find(action, "^Rojo: Patch") then
@@ -439,39 +440,56 @@ function App:getHelperPort()
 	return HelperClient.normalizeHelperPort(self.helperPort:getValue())
 end
 
+function App:resetHelperBinding()
+	self.helperTaskId = nil
+	self.helperTaskGeneration = nil
+	self.helperLaunchId = nil
+end
+
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
 	Log.info(
-		"Requesting Rojo config from helper on port {} (placeId={}, taskId={}, generation={}, runState={})",
+		"Requesting Rojo config from helper on port {} (placeId={}, taskId={}, generation={}, launchId={}, runState={})",
 		helperPort,
 		tostring(game.PlaceId),
 		tostring(self.helperTaskId),
 		tostring(self.helperTaskGeneration),
+		tostring(self.helperLaunchId),
 		formatRunState()
 	)
-	local request = HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), self.helperTaskId, self.helperTaskGeneration)
-	if self.helperTaskId ~= nil then
+	local request = HelperClient.getRojoConfig(
+		helperPort,
+		tostring(game.PlaceId),
+		self.helperTaskId,
+		self.helperTaskGeneration,
+		self.helperLaunchId
+	)
+	if self.helperTaskId ~= nil or self.helperTaskGeneration ~= nil or self.helperLaunchId ~= nil then
 		request = request:catch(function(err)
 			Log.warn(
-				"Helper config lookup for cached taskId {} failed: {}. Retrying with place-only lookup.",
+				"Helper config lookup for cached task binding ({}, {}, {}) failed: {}. Retrying without cached binding.",
 				tostring(self.helperTaskId),
+				tostring(self.helperTaskGeneration),
+				tostring(self.helperLaunchId),
 				tostring(err)
 			)
-			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil)
+			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil, nil)
 		end)
 	end
 	return request:andThen(function(config)
 		Log.info(
-			"Received Rojo config from helper (baseUrl={}, host={}, port={}, taskId={}, generation={}, authHeaderPresent={})",
+			"Received Rojo config from helper (baseUrl={}, host={}, port={}, taskId={}, generation={}, launchId={}, authHeaderPresent={})",
 			tostring(config.baseUrl),
 			tostring(config.host),
 			tostring(config.port),
 			tostring(config.taskId),
 			tostring(config.generation),
+			tostring(config.launchId),
 			config.authHeader ~= nil and config.authHeader ~= ""
 		)
 		self.helperTaskId = if type(config.taskId) == "string" and config.taskId ~= "" then config.taskId else self.helperTaskId
 		self.helperTaskGeneration = if type(config.generation) == "number" then config.generation else self.helperTaskGeneration
+		self.helperLaunchId = if type(config.launchId) == "string" and config.launchId ~= "" then config.launchId else self.helperLaunchId
 		self.setHost(config.host)
 		self.setPort(config.port)
 		self:setAndStoreHelperPort(helperPort)
@@ -929,6 +947,7 @@ function App:startSessionWithConnection(connection)
 			self.serveSession = nil
 			self:releaseSyncLock()
 			self:clearRunningConnectionInfo()
+			self:resetHelperBinding()
 			self:setState({
 				patchData = {
 					patch = PatchSet.newEmpty(),
@@ -1119,6 +1138,7 @@ function App:endSession()
 
 	self.serveSession:stop()
 	self.serveSession = nil
+	self:resetHelperBinding()
 	self:setState({
 		appStatus = AppStatus.NotConnected,
 	})
