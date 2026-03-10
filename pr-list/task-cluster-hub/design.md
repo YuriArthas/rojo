@@ -35,6 +35,13 @@
 - 但 Rojo 插件看到的服务元数据必须能表达“当前连接属于哪个 task”。
 - 为三期保留插件按 `task_id` 自拼域名后的确认能力。
 
+### 4. 最新收口共识
+
+- Rojo 继续只承担数据面职责，不持有 hub 控制面状态。
+- helper 才是本机 Rojo 插件的权威配置源；Rojo 插件不应演化成控制面参与者。
+- 当前可接受插件短暂持有 helper 返回的 task 身份用于一次连接，但不应继续把 `generation` 作为长期缓存主键扩散。
+- Windows 三期的目标是让 Rojo 插件更像瘦客户端：向 helper 要当前有效配置，而不是自行理解 task 任期流转。
+
 ## 分期
 
 ### 一期
@@ -49,6 +56,17 @@
 ### 三期
 
 - 与 Windows 插件/Studio 链路完成最终接线。
+
+### Windows 接力指引
+
+- Windows 侧重点查看：
+  - 本文档的“3. 插件/helper 配置兼容”“4. 最新收口共识”
+  - `plugin/src/HelperClient.lua`
+  - `plugin/src/App/init.lua`
+- 后续修改方向：
+  - 继续减少插件对控制面字段的长期缓存
+  - 保持 helper 作为唯一配置来源
+  - 不增加按 `place_id` 回退猜测 task 的逻辑
 
 ## 非目标
 
