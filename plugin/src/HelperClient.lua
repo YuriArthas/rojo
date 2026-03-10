@@ -39,15 +39,12 @@ local function parseBaseUrl(baseUrl)
 	return host, port
 end
 
-local function getRojoConfig(helperPort, placeId, taskId, generation, launchId)
+local function getRojoConfig(helperPort, placeId, taskId, launchId)
 	local normalizedPort = normalizeHelperPort(helperPort)
 	return Promise.new(function(resolve, reject)
 		local url = string.format("http://127.0.0.1:%s/v1/rojo/config?placeId=%s", normalizedPort, tostring(placeId))
 		if taskId ~= nil and taskId ~= "" then
 			url = url .. "&taskId=" .. HttpService:UrlEncode(tostring(taskId))
-		end
-		if generation ~= nil then
-			url = url .. "&generation=" .. HttpService:UrlEncode(tostring(generation))
 		end
 		if launchId ~= nil and launchId ~= "" then
 			url = url .. "&launchId=" .. HttpService:UrlEncode(tostring(launchId))
@@ -57,12 +54,11 @@ local function getRojoConfig(helperPort, placeId, taskId, generation, launchId)
 			Method = "GET",
 		}
 		Log.info(
-			"Requesting Rojo helper config (helperPort={}, normalizedPort={}, placeId={}, taskId={}, generation={}, launchId={})",
+			"Requesting Rojo helper config (helperPort={}, normalizedPort={}, placeId={}, taskId={}, launchId={})",
 			tostring(helperPort),
 			tostring(normalizedPort),
 			tostring(placeId),
 			tostring(taskId),
-			tostring(generation),
 			tostring(launchId)
 		)
 
@@ -112,7 +108,6 @@ local function getRojoConfig(helperPort, placeId, taskId, generation, launchId)
 			baseUrl = decoded.base_url,
 			authHeader = decoded.auth_header,
 			taskId = decoded.task_id,
-			generation = decoded.generation,
 			launchId = decoded.launch_id,
 			host = host,
 			port = port,

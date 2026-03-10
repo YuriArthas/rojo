@@ -83,7 +83,6 @@ function App:init()
 	self.knownProjects = {}
 	self.notifId = 0
 	self.helperTaskId = nil
-	self.helperTaskGeneration = nil
 	self.helperLaunchId = nil
 
 	self.waypointConnection = ChangeHistoryService.OnUndo:Connect(function(action: string)
@@ -442,27 +441,23 @@ end
 
 function App:resetHelperBinding()
 	self.helperTaskId = nil
-	self.helperTaskGeneration = nil
 	self.helperLaunchId = nil
 end
 
 function App:updateHelperBindingFromConfig(config)
 	local taskId = if type(config.taskId) == "string" and config.taskId ~= "" then config.taskId else nil
-	local generation = if type(config.generation) == "number" then config.generation else nil
 	local launchId = if type(config.launchId) == "string" and config.launchId ~= "" then config.launchId else nil
 
-	if taskId ~= nil and generation ~= nil and launchId ~= nil then
+	if taskId ~= nil and launchId ~= nil then
 		self.helperTaskId = taskId
-		self.helperTaskGeneration = generation
 		self.helperLaunchId = launchId
 		return
 	end
 
-	if taskId ~= nil or generation ~= nil or launchId ~= nil then
+	if taskId ~= nil or launchId ~= nil then
 		Log.warn(
-			"Helper returned partial task binding ({}, {}, {}); clearing cached helper binding.",
+			"Helper returned partial task binding ({}, {}); clearing cached helper binding.",
 			tostring(taskId),
-			tostring(generation),
 			tostring(launchId)
 		)
 	end
@@ -473,11 +468,10 @@ end
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
 	Log.info(
-		"Requesting Rojo config from helper on port {} (placeId={}, taskId={}, generation={}, launchId={}, runState={})",
+		"Requesting Rojo config from helper on port {} (placeId={}, taskId={}, launchId={}, runState={})",
 		helperPort,
 		tostring(game.PlaceId),
 		tostring(self.helperTaskId),
-		tostring(self.helperTaskGeneration),
 		tostring(self.helperLaunchId),
 		formatRunState()
 	)
@@ -485,33 +479,29 @@ function App:requestHelperConnectionConfig()
 		helperPort,
 		tostring(game.PlaceId),
 		self.helperTaskId,
-		self.helperTaskGeneration,
 		self.helperLaunchId
 	)
-	if self.helperTaskId ~= nil or self.helperTaskGeneration ~= nil or self.helperLaunchId ~= nil then
+	if self.helperTaskId ~= nil or self.helperLaunchId ~= nil then
 		request = request:catch(function(err)
 			local staleTaskId = self.helperTaskId
-			local staleGeneration = self.helperTaskGeneration
 			local staleLaunchId = self.helperLaunchId
 			self:resetHelperBinding()
 			Log.warn(
-				"Helper config lookup for cached task binding ({}, {}, {}) failed: {}. Retrying without cached binding.",
+				"Helper config lookup for cached task binding ({}, {}) failed: {}. Retrying without cached binding.",
 				tostring(staleTaskId),
-				tostring(staleGeneration),
 				tostring(staleLaunchId),
 				tostring(err)
 			)
-			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil, nil)
+			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil)
 		end)
 	end
 	return request:andThen(function(config)
 		Log.info(
-			"Received Rojo config from helper (baseUrl={}, host={}, port={}, taskId={}, generation={}, launchId={}, authHeaderPresent={})",
+			"Received Rojo config from helper (baseUrl={}, host={}, port={}, taskId={}, launchId={}, authHeaderPresent={})",
 			tostring(config.baseUrl),
 			tostring(config.host),
 			tostring(config.port),
 			tostring(config.taskId),
-			tostring(config.generation),
 			tostring(config.launchId),
 			config.authHeader ~= nil and config.authHeader ~= ""
 		)
