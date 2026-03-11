@@ -34,7 +34,11 @@ end
 
 function ChangeBatcher:stop()
 	self.__renderSteppedConnection:Disconnect()
+	local patch = self:__flush()
 	self.__pendingPropertyChanges = {}
+	if patch then
+		self.__onChangesFlushed(patch)
+	end
 end
 
 function ChangeBatcher:add(instance, propertyName)

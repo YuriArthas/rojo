@@ -581,9 +581,9 @@ function ServeSession:__stopInternal(err)
 		tostring(err)
 	)
 	self:__setStatus(Status.Disconnected, err)
+	self.__changeBatcher:stop()
 	self.__apiContext:disconnect()
 	self.__instanceMap:stop()
-	self.__changeBatcher:stop()
 
 	for _, connection in ipairs(self.__connections) do
 		connection:Disconnect()
