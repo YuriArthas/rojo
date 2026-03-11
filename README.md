@@ -36,13 +36,13 @@ Rojo enables:
 - `workspace`
 - `public_base_url`
 
-这些字段会通过 `rojo serve` 的额外参数注入，并在 `/api/rojo` 里返回。这样 platform supervisor、helper、插件和大模型都能确认“当前连到的是哪一个 task 化实例”，而不是继续依赖旧的 `place_id -> 唯一实例` 假设。
+这些字段会通过 `rojo serve` 的额外参数注入，并在 `/api/rojo` 里返回。这样 platform supervisor、helper、插件和大模型都能确认当前连接到的是哪个 task 化实例。
 
 当前收口方向里，helper 仍然是本机唯一权威配置源：
 
-- Rojo 插件可以短暂持有 helper 返回的 task 身份来完成一次连接
-- 但不应把 `generation` 当成长久缓存键或自行决定控制面任期
-- 不应回退到按 `place_id` 猜测 task 的逻辑
+- Rojo 插件可以持有 helper 返回的 task 身份来完成当前连接
+- 不把 `generation` 当成长久缓存键，也不自行决定控制面任期
+- 不按 `place_id` 猜测 task
 
 In the future, Rojo will be able to:
 
