@@ -9,7 +9,10 @@ use clap::Parser;
 use memofs::Vfs;
 use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
 
-use crate::{serve_session::ServeSession, web::LiveServer};
+use crate::{
+    serve_session::{ServeMetadata, ServeSession},
+    web::LiveServer,
+};
 
 use super::{resolve_path, GlobalOptions};
 
@@ -31,6 +34,18 @@ pub struct ServeCommand {
     /// it has none.
     #[clap(long)]
     pub port: Option<u16>,
+
+    /// Optional workspace path metadata exposed in /api/rojo for external routing checks.
+    #[clap(long)]
+    pub workspace_path: Option<String>,
+
+    /// Optional task_id metadata exposed in /api/rojo for task-based cluster routing.
+    #[clap(long)]
+    pub task_id: Option<String>,
+
+    /// Optional public base URL metadata exposed in /api/rojo for route verification.
+    #[clap(long)]
+    pub public_base_url: Option<String>,
 }
 
 impl ServeCommand {
@@ -39,7 +54,15 @@ impl ServeCommand {
 
         let vfs = Vfs::new_default();
 
-        let session = Arc::new(ServeSession::new(vfs, project_path)?);
+        let session = Arc::new(ServeSession::new_with_metadata(
+            vfs,
+            project_path,
+            ServeMetadata {
+                workspace_path: self.workspace_path,
+                task_id: self.task_id,
+                public_base_url: self.public_base_url,
+            },
+        )?);
 
         let ip = self
             .address

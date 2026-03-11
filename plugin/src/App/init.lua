@@ -82,6 +82,8 @@ function App:init()
 	self.confirmationEvent = self.confirmationBindable.Event
 	self.knownProjects = {}
 	self.notifId = 0
+	self.helperTaskId = nil
+	self.helperLaunchId = nil
 
 	self.waypointConnection = ChangeHistoryService.OnUndo:Connect(function(action: string)
 		if not string.find(action, "^Rojo: Patch") then
@@ -331,7 +333,7 @@ function App:getPriorSyncInfo(): { host: string?, port: string?, projectName: st
 		return {}
 	end
 
-	local id = tostring(game.PlaceId)
+	local id = if self.helperTaskId ~= nil then tostring(self.helperTaskId) else tostring(game.PlaceId)
 	if ignorePlaceIds[id] then
 		return {}
 	end
@@ -355,7 +357,7 @@ function App:setPriorSyncInfo(host: string, port: string, projectName: string)
 		end
 	end
 
-	local id = tostring(game.PlaceId)
+	local id = if self.helperTaskId ~= nil then tostring(self.helperTaskId) else tostring(game.PlaceId)
 	if ignorePlaceIds[id] then
 		return
 	end
@@ -366,7 +368,7 @@ function App:setPriorSyncInfo(host: string, port: string, projectName: string)
 		projectName = projectName,
 		timestamp = now,
 	}
-	Log.trace("Saved last used endpoint for {}", game.PlaceId)
+	Log.trace("Saved last used endpoint for {}", id)
 
 	Settings:set("priorEndpoints", priorSyncInfos)
 end
@@ -377,9 +379,9 @@ function App:forgetPriorSyncInfo()
 		priorSyncInfos = {}
 	end
 
-	local id = tostring(game.PlaceId)
+	local id = if self.helperTaskId ~= nil then tostring(self.helperTaskId) else tostring(game.PlaceId)
 	priorSyncInfos[id] = nil
-	Log.trace("Erased last used endpoint for {}", game.PlaceId)
+	Log.trace("Erased last used endpoint for {}", id)
 
 	Settings:set("priorEndpoints", priorSyncInfos)
 end
@@ -437,22 +439,73 @@ function App:getHelperPort()
 	return HelperClient.normalizeHelperPort(self.helperPort:getValue())
 end
 
+function App:resetHelperBinding()
+	self.helperTaskId = nil
+	self.helperLaunchId = nil
+end
+
+function App:updateHelperBindingFromConfig(config)
+	local taskId = if type(config.taskId) == "string" and config.taskId ~= "" then config.taskId else nil
+	local launchId = if type(config.launchId) == "string" and config.launchId ~= "" then config.launchId else nil
+
+	if taskId ~= nil and launchId ~= nil then
+		self.helperTaskId = taskId
+		self.helperLaunchId = launchId
+		return
+	end
+
+	if taskId ~= nil or launchId ~= nil then
+		Log.warn(
+			"Helper returned partial task binding ({}, {}); clearing cached helper binding.",
+			tostring(taskId),
+			tostring(launchId)
+		)
+	end
+
+	self:resetHelperBinding()
+end
+
 function App:requestHelperConnectionConfig()
 	local helperPort = self:getHelperPort()
 	Log.info(
-		"Requesting Rojo config from helper on port {} (placeId={}, runState={})",
+		"Requesting Rojo config from helper on port {} (placeId={}, taskId={}, launchId={}, runState={})",
 		helperPort,
 		tostring(game.PlaceId),
+		tostring(self.helperTaskId),
+		tostring(self.helperLaunchId),
 		formatRunState()
 	)
-	return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId)):andThen(function(config)
+	local request = HelperClient.getRojoConfig(
+		helperPort,
+		tostring(game.PlaceId),
+		self.helperTaskId,
+		self.helperLaunchId
+	)
+	if self.helperTaskId ~= nil or self.helperLaunchId ~= nil then
+		request = request:catch(function(err)
+			local staleTaskId = self.helperTaskId
+			local staleLaunchId = self.helperLaunchId
+			self:resetHelperBinding()
+			Log.warn(
+				"Helper config lookup for cached task binding ({}, {}) failed: {}. Retrying without cached binding.",
+				tostring(staleTaskId),
+				tostring(staleLaunchId),
+				tostring(err)
+			)
+			return HelperClient.getRojoConfig(helperPort, tostring(game.PlaceId), nil, nil)
+		end)
+	end
+	return request:andThen(function(config)
 		Log.info(
-			"Received Rojo config from helper (baseUrl={}, host={}, port={}, authHeaderPresent={})",
+			"Received Rojo config from helper (baseUrl={}, host={}, port={}, taskId={}, launchId={}, authHeaderPresent={})",
 			tostring(config.baseUrl),
 			tostring(config.host),
 			tostring(config.port),
+			tostring(config.taskId),
+			tostring(config.launchId),
 			config.authHeader ~= nil and config.authHeader ~= ""
 		)
+		self:updateHelperBindingFromConfig(config)
 		self.setHost(config.host)
 		self.setPort(config.port)
 		self:setAndStoreHelperPort(helperPort)
@@ -910,6 +963,7 @@ function App:startSessionWithConnection(connection)
 			self.serveSession = nil
 			self:releaseSyncLock()
 			self:clearRunningConnectionInfo()
+			self:resetHelperBinding()
 			self:setState({
 				patchData = {
 					patch = PatchSet.newEmpty(),
@@ -1100,6 +1154,7 @@ function App:endSession()
 
 	self.serveSession:stop()
 	self.serveSession = nil
+	self:resetHelperBinding()
 	self:setState({
 		appStatus = AppStatus.NotConnected,
 	})

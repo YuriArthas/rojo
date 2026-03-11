@@ -160,6 +160,12 @@ pub struct ServerInfoResponse {
     pub server_version: String,
     pub protocol_version: u64,
     pub project_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_base_url: Option<String>,
     pub expected_place_ids: Option<Vec<String>>,
     pub unexpected_place_ids: Option<Vec<String>>,
     pub game_id: Option<u64>,
