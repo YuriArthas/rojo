@@ -53,6 +53,7 @@ local App = Roact.Component:extend("App")
 
 local AUTO_CONNECT_HELPER_MAX_ATTEMPTS = 4
 local AUTO_CONNECT_HELPER_RETRY_DELAY_SECONDS = 2
+local DISCONNECT_AUTO_RECONNECT_DELAY_SECONDS = 2
 
 local function formatRunState()
 	return string.format(
@@ -84,6 +85,8 @@ function App:init()
 	self.notifId = 0
 	self.helperTaskId = nil
 	self.helperLaunchId = nil
+	self.disconnectAutoReconnectGeneration = 0
+	self.suppressNextDisconnectAutoReconnect = false
 
 	self.waypointConnection = ChangeHistoryService.OnUndo:Connect(function(action: string)
 		if not string.find(action, "^Rojo: Patch") then
@@ -148,9 +151,15 @@ function App:init()
 	end)
 	self.disconnectAutoReconnectChanged = Settings:onChanged("autoReconnect", function(value)
 		Log.info("Setting autoReconnect changed to {}", tostring(value))
+		if not value and not Settings:get("helperAutoConnect") then
+			self:cancelDisconnectAutoReconnect()
+		end
 	end)
 	self.disconnectHelperAutoConnectChanged = Settings:onChanged("helperAutoConnect", function(value)
 		Log.info("Setting helperAutoConnect changed to {}", tostring(value))
+		if not value and not Settings:get("autoReconnect") then
+			self:cancelDisconnectAutoReconnect()
+		end
 	end)
 
 	self:setState({
@@ -238,6 +247,7 @@ function App:init()
 end
 
 function App:willUnmount()
+	self:cancelDisconnectAutoReconnect()
 	self:endSession()
 
 	self.waypointConnection:Disconnect()
@@ -437,6 +447,76 @@ end
 
 function App:getHelperPort()
 	return HelperClient.normalizeHelperPort(self.helperPort:getValue())
+end
+
+function App:cancelDisconnectAutoReconnect()
+	self.disconnectAutoReconnectGeneration += 1
+end
+
+function App:getDisconnectAutoReconnectSource()
+	if self.suppressNextDisconnectAutoReconnect then
+		self.suppressNextDisconnectAutoReconnect = false
+		Log.info("Skipping disconnect auto-reconnect because disconnect was initiated locally")
+		return nil
+	end
+
+	if not RunService:IsEdit() then
+		Log.info("Skipping disconnect auto-reconnect because current run state is not edit")
+		return nil
+	end
+
+	if Settings:get("helperAutoConnect") then
+		return "helper_auto_connect"
+	end
+
+	if Settings:get("autoReconnect") then
+		return "auto_reconnect"
+	end
+
+	Log.info("Skipping disconnect auto-reconnect because helperAutoConnect and autoReconnect are disabled")
+	return nil
+end
+
+function App:scheduleDisconnectAutoReconnect(reason: string)
+	local source = self:getDisconnectAutoReconnectSource()
+	if source == nil then
+		return
+	end
+
+	self:cancelDisconnectAutoReconnect()
+	local generation = self.disconnectAutoReconnectGeneration
+	Log.info(
+		"Scheduling disconnect auto-reconnect (source={}, reason={}, delaySeconds={})",
+		tostring(source),
+		tostring(reason),
+		tostring(DISCONNECT_AUTO_RECONNECT_DELAY_SECONDS)
+	)
+
+	task.delay(DISCONNECT_AUTO_RECONNECT_DELAY_SECONDS, function()
+		if self.disconnectAutoReconnectGeneration ~= generation then
+			Log.trace("Canceled stale disconnect auto-reconnect attempt")
+			return
+		end
+
+		if self.serveSession ~= nil then
+			Log.trace("Skipping disconnect auto-reconnect because a session is already active")
+			return
+		end
+
+		Log.info(
+			"Running disconnect auto-reconnect (source={}, reason={}, runState={})",
+			tostring(source),
+			tostring(reason),
+			formatRunState()
+		)
+		if source == "auto_reconnect" then
+			self:tryAutoReconnect():andThen(function(didReconnect)
+				Log.info("Disconnect auto-reconnect finished (didReconnect={})", tostring(didReconnect))
+			end)
+		else
+			self:startSession(source)
+		end
+	end)
 end
 
 function App:resetHelperBinding()
@@ -938,6 +1018,8 @@ function App:startSessionWithConnection(connection)
 				text = "Connecting to session...",
 			})
 		elseif status == ServeSession.Status.Connected then
+			self:cancelDisconnectAutoReconnect()
+			self.suppressNextDisconnectAutoReconnect = false
 			self.knownProjects[details] = true
 			self:setPriorSyncInfo(host, port, details)
 			self:setRunningConnectionInfo(baseUrl)
@@ -994,6 +1076,8 @@ function App:startSessionWithConnection(connection)
 					timeout = 10,
 				})
 			end
+
+			self:scheduleDisconnectAutoReconnect(details)
 		end
 	end)
 
@@ -1084,6 +1168,8 @@ end
 
 function App:startSession(source)
 	source = source or "manual"
+	self:cancelDisconnectAutoReconnect()
+	self.suppressNextDisconnectAutoReconnect = false
 	Log.info(
 		"Rojo startSession requested (source={}, runState={}, helperPort={}, helperAutoConnect={}, autoReconnect={}, autoConnectPlaytestServer={})",
 		tostring(source),
@@ -1147,6 +1233,8 @@ function App:endSession()
 		return
 	end
 
+	self:cancelDisconnectAutoReconnect()
+	self.suppressNextDisconnectAutoReconnect = true
 	Log.info(
 		"Disconnecting Rojo session by user action (runState={})",
 		formatRunState()
