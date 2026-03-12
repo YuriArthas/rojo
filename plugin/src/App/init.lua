@@ -709,19 +709,6 @@ function App:findActiveServer()
 		tostring(Settings:get("syncReminderPolling"))
 	)
 	return self:requestAutoConnectHelperConnection("active_server_probe")
-		:catch(function(helperErr)
-			local savedConnection = self:getSavedConnectionConfig()
-			if savedConnection == nil then
-				return Promise.reject(helperErr)
-			end
-
-			Log.warn(
-				"Helper config request failed during active server probe, falling back to saved endpoint {}: {}",
-				tostring(savedConnection.baseUrl),
-				tostring(helperErr)
-			)
-			return savedConnection
-		end)
 		:andThen(function(connection)
 			Log.info("Checking for active sync server at {}", connection.baseUrl)
 			local apiContext = ApiContext.new(connection.baseUrl, connection.authHeader)
