@@ -12,7 +12,7 @@ local Roact = require(Packages.Roact)
 local defaultSettings = {
 	openScriptsExternally = false,
 	twoWaySync = false,
-	autoReconnect = false,
+	autoReconnect = true,
 	showNotifications = true,
 	enableSyncFallback = true,
 	syncReminderMode = "Notify" :: "None" | "Notify" | "Fullscreen",
@@ -20,14 +20,14 @@ local defaultSettings = {
 	checkForUpdates = true,
 	checkForPrereleases = false,
 	autoConnectPlaytestServer = false,
-	confirmationBehavior = "Initial" :: "Never" | "Initial" | "Large Changes" | "Unlisted PlaceId",
+	confirmationBehavior = "Never" :: "Never" | "Initial" | "Large Changes" | "Unlisted PlaceId",
 	largeChangesConfirmationThreshold = 5,
 	playSounds = true,
 	typecheckingEnabled = false,
 	logLevel = "Info",
 	timingLogsEnabled = false,
 	helperPort = "44750",
-	helperAutoConnect = false,
+	helperAutoConnect = true,
 	priorEndpoints = {},
 }
 
