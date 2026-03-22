@@ -66,7 +66,7 @@ local function AutoConnectEntry(props)
 				Size = UDim2.new(1, -72, 0, 16),
 			}),
 			Description = e("TextLabel", {
-				Text = "Try the helper once when Studio opens. Failures stop until you click Connect again.",
+				Text = "Try the helper once when Studio opens. Required by this build.",
 				FontFace = theme.Font.Main,
 				TextSize = theme.TextSize.Body,
 				TextColor3 = theme.Settings.Setting.DescriptionColor,
@@ -78,15 +78,13 @@ local function AutoConnectEntry(props)
 				Size = UDim2.new(1, -72, 0, 20),
 			}),
 			Toggle = e(Checkbox, {
-				active = props.autoConnect,
+				active = true,
+				locked = true,
+				lockedTooltip = "(Required by this build.)",
 				transparency = props.transparency,
 				position = UDim2.new(1, -40, 0.5, 0),
 				anchorPoint = Vector2.new(0, 0.5),
-				onClick = function()
-					if props.onAutoConnectChange ~= nil then
-						props.onAutoConnectChange(not props.autoConnect)
-					end
-				end,
+				onClick = function() end,
 			}),
 		})
 	end)

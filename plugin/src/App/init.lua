@@ -468,7 +468,7 @@ end
 function App:setAndStoreHelperAutoConnect(value)
 	Settings:set("helperAutoConnect", value)
 	self:setState({
-		helperAutoConnect = value,
+		helperAutoConnect = Settings:get("helperAutoConnect"),
 	})
 end
 

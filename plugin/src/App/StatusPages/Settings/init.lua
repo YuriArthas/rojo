@@ -97,7 +97,9 @@ function SettingsPage:render()
 			AutoReconnect = e(Setting, {
 				id = "autoReconnect",
 				name = "Auto Reconnect",
-				description = "Reconnect to server on place open if the served project matches the last sync to the place",
+				description = "Reconnect to server on place open if the served project matches the last sync to the place. Required by this build.",
+				locked = Settings:isLocked("autoReconnect"),
+				lockedTooltip = "(Required by this build.)",
 				transparency = self.props.transparency,
 				layoutOrder = layoutIncrement(),
 			}),
@@ -135,7 +137,9 @@ function SettingsPage:render()
 			ConfirmationBehavior = e(Setting, {
 				id = "confirmationBehavior",
 				name = "Confirmation Behavior",
-				description = "When to prompt for confirmation before syncing",
+				description = "When to prompt for confirmation before syncing. Required by this build.",
+				locked = Settings:isLocked("confirmationBehavior"),
+				lockedTooltip = "(Required by this build.)",
 				transparency = self.props.transparency,
 				layoutOrder = layoutIncrement(),
 

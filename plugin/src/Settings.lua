@@ -31,6 +31,12 @@ local defaultSettings = {
 	priorEndpoints = {},
 }
 
+local lockedSettings = {
+	autoReconnect = true,
+	helperAutoConnect = true,
+	confirmationBehavior = "Never",
+}
+
 local Settings = {}
 
 Settings._values = table.clone(defaultSettings)
@@ -58,9 +64,15 @@ end
 
 if plugin then
 	for name, defaultValue in pairs(Settings._values) do
+		local lockedValue = lockedSettings[name]
 		local savedValue = plugin:GetSetting("Rojo_" .. name)
 
-		if savedValue == nil then
+		if lockedValue ~= nil then
+			Settings._values[name] = lockedValue
+			if savedValue ~= lockedValue then
+				task.spawn(plugin.SetSetting, plugin, "Rojo_" .. name, lockedValue)
+			end
+		elseif savedValue == nil then
 			-- plugin:SetSetting hits disc instead of memory, so it can be slow. Spawn so we don't hang.
 			task.spawn(plugin.SetSetting, plugin, "Rojo_" .. name, defaultValue)
 			Settings._values[name] = defaultValue
@@ -91,6 +103,11 @@ function Settings:get(name)
 end
 
 function Settings:set(name, value)
+	local lockedValue = lockedSettings[name]
+	if lockedValue ~= nil then
+		value = lockedValue
+	end
+
 	self._values[name] = value
 	if self._bindings[name] then
 		self._bindings[name].set(value)
@@ -108,6 +125,10 @@ function Settings:set(name, value)
 	end
 
 	Log.trace(string.format("Set setting '%s' to '%s'", name, tostring(value)))
+end
+
+function Settings:isLocked(name)
+	return lockedSettings[name] ~= nil
 end
 
 function Settings:onChanged(name, callback)
