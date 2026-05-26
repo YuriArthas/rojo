@@ -21,9 +21,16 @@ local function normalizeHelperPort(value)
 end
 
 local function parseBaseUrl(baseUrl)
-	local scheme, authority = string.match(baseUrl, "^(https?)://([^/]+)$")
+	local normalizedBaseUrl = trim(baseUrl):gsub("/+$", "")
+	local scheme, authority = string.match(normalizedBaseUrl, "^(https?)://([^/?#]+)")
 	if not scheme or not authority then
 		error("Helper returned an invalid base_url: " .. tostring(baseUrl))
+	end
+
+	local matchedPrefix = string.format("%s://%s", scheme, authority)
+	local rest = string.sub(normalizedBaseUrl, #matchedPrefix + 1)
+	if rest ~= "" and not string.match(rest, "^/[^?#]*$") then
+		error("Helper returned an invalid base_url path: " .. tostring(baseUrl))
 	end
 
 	local host, port = string.match(authority, "^(.+):(%d+)$")
@@ -37,6 +44,11 @@ local function parseBaseUrl(baseUrl)
 	end
 
 	return host, port
+end
+
+local function normalizeBaseUrl(baseUrl)
+	parseBaseUrl(baseUrl)
+	return trim(baseUrl):gsub("/+$", "")
 end
 
 local function getRojoConfig(helperPort, placeId, taskId)
@@ -92,16 +104,17 @@ local function getRojoConfig(helperPort, placeId, taskId)
 			return reject("Helper response did not include a base_url")
 		end
 
-		local host, port = parseBaseUrl(decoded.base_url)
+		local baseUrl = normalizeBaseUrl(decoded.base_url)
+		local host, port = parseBaseUrl(baseUrl)
 		Log.info(
 			"Rojo helper config resolved successfully (baseUrl={}, host={}, port={}, authHeaderPresent={})",
-			tostring(decoded.base_url),
+			tostring(baseUrl),
 			tostring(host),
 			tostring(port),
 			decoded.auth_header ~= nil and tostring(decoded.auth_header) ~= ""
 		)
 		resolve({
-			baseUrl = decoded.base_url,
+			baseUrl = baseUrl,
 			authHeader = decoded.auth_header,
 			taskId = decoded.task_id,
 			host = host,
@@ -114,6 +127,7 @@ end
 return {
 	DEFAULT_HELPER_PORT = DEFAULT_HELPER_PORT,
 	normalizeHelperPort = normalizeHelperPort,
+	normalizeBaseUrl = normalizeBaseUrl,
 	parseBaseUrl = parseBaseUrl,
 	getRojoConfig = getRojoConfig,
 }
