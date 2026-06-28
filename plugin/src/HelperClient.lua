@@ -54,9 +54,9 @@ end
 local function getRojoConfig(helperPort, placeId, taskId)
 	local normalizedPort = normalizeHelperPort(helperPort)
 	return Promise.new(function(resolve, reject)
-		local url = string.format("http://127.0.0.1:%s/v1/rojo/config?placeId=%s", normalizedPort, tostring(placeId))
+		local url = string.format("http://127.0.0.1:%s/v1/rojo/config?place_id=%s", normalizedPort, tostring(placeId))
 		if taskId ~= nil and taskId ~= "" then
-			url = url .. "&taskId=" .. HttpService:UrlEncode(tostring(taskId))
+			url = url .. "&task_id=" .. HttpService:UrlEncode(tostring(taskId))
 		end
 		local request = {
 			Url = url,
